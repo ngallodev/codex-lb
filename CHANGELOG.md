@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.13.0](https://github.com/Soju06/codex-lb/compare/v1.12.0...v1.13.0) (2026-04-10)
+
+
+### Features
+
+* **auth:** add dashboard proxy auth modes ([#366](https://github.com/Soju06/codex-lb/issues/366)) ([ed4a754](https://github.com/Soju06/codex-lb/commit/ed4a7546b57b6987b62d7188f4af013d6f4d598b))
+* auto-generate bootstrap token and enable sticky/reset defaults ([#377](https://github.com/Soju06/codex-lb/issues/377)) ([79e5f13](https://github.com/Soju06/codex-lb/commit/79e5f13dd22b5a47f85e3508a44a4b1ce7dd72b9))
+* **ui:** UI adjustments on dashboards ([#379](https://github.com/Soju06/codex-lb/issues/379)) ([0f80ca2](https://github.com/Soju06/codex-lb/commit/0f80ca2db4857fe97f79f5c9cf2e6abe9d88b61d))
+
+
+### Bug Fixes
+
+* **auth:** harden dashboard auth modes (Codex review follow-up) ([#384](https://github.com/Soju06/codex-lb/issues/384)) ([d106a71](https://github.com/Soju06/codex-lb/commit/d106a7137364060ea869dc0cd47862333db7f4b7))
+
+
+### Documentation
+
+* add aruis as a contributor for doc ([#382](https://github.com/Soju06/codex-lb/issues/382)) ([1b5c216](https://github.com/Soju06/codex-lb/commit/1b5c216f9d4a9e35f9ee8f5d43fa567968640eb4))
+* add SHAREN as a contributor for code, and test ([#381](https://github.com/Soju06/codex-lb/issues/381)) ([cf65c04](https://github.com/Soju06/codex-lb/commit/cf65c04ceb5e493f1d8a407ea72753510eb1a4b3))
+* **api-keys:** clarify local-only behavior when auth is disabled ([#374](https://github.com/Soju06/codex-lb/issues/374)) ([54e9aa9](https://github.com/Soju06/codex-lb/commit/54e9aa90fa888c48f487092ec5e2e1a6cc1fdce2))
+
 ## [1.12.0](https://github.com/Soju06/codex-lb/compare/v1.11.0...v1.12.0) (2026-04-08)
 
 
