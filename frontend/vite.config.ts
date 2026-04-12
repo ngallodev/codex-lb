@@ -21,6 +21,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: ["r6d12"],
     proxy: {
       "/api": proxyTarget,
       "/v1": proxyTarget,

@@ -1224,6 +1224,11 @@ def _error_details_from_content(
 async def _validate_proxy_websocket_request(
     websocket: WebSocket,
 ) -> tuple[ApiKeyData | None, JSONResponse | None]:
+    client_host = websocket.client.host if websocket.client else None
+    auth_header = websocket.headers.get("authorization")
+    auth_preview = auth_header[:20] if auth_header else None
+    logger.debug(f"[WS DEBUG] client_host={client_host}, auth_header_preview={auth_preview}")
+
     denial = await _websocket_firewall_denial_response(websocket)
     if denial is not None:
         return None, denial
