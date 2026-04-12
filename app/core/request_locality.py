@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 
 from starlette.requests import HTTPConnection
 
 from app.core.config.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 _LOCAL_HOSTS = {
     "",
@@ -183,12 +186,19 @@ def is_local_request(request: HTTPConnection) -> bool:
 
     settings = get_settings()
     client_host = resolve_request_client_host(request)
+    logger.debug(f"[LOCALITY DEBUG] client_host={client_host}")
     if not client_host:
         return False
     try:
         address = ip_address(client_host)
+        logger.debug(f"[LOCALITY DEBUG] address={address}, is_loopback={address.is_loopback}, is_private={address.is_private}")
     except ValueError:
         return False
+
+    # Docker bridge IPs (172.16.0.0/12) are treated as local
+    if address.is_private and not address.is_loopback:
+        return True
+
     if address.is_loopback:
         host_name = _parse_host_header_hostname(request.headers.get("host"))
         if settings.firewall_trust_proxy_headers:

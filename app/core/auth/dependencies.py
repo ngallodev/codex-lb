@@ -56,10 +56,15 @@ async def validate_proxy_api_key_authorization(
     request: HTTPConnection | None = None,
 ) -> ApiKeyData | None:
     settings = await get_settings_cache().get()
+    logger.debug(f"[AUTH DEBUG] api_key_auth_enabled={settings.api_key_auth_enabled}")
     if not settings.api_key_auth_enabled:
-        if request is not None and not is_local_request(request):
-            if not _is_proxy_unauthenticated_socket_peer_allowed(request):
-                raise ProxyAuthError("Proxy authentication must be configured before remote access is allowed")
+        if request is not None:
+            client_host = request.client.host if request.client else None
+            is_local = is_local_request(request)
+            logger.debug(f"[AUTH DEBUG] request.client.host={client_host}, is_local_request={is_local}")
+            if not is_local:
+                if not _is_proxy_unauthenticated_socket_peer_allowed(request):
+                    raise ProxyAuthError("Proxy authentication must be configured before remote access is allowed")
         return None
 
     token = _extract_bearer_token(authorization)

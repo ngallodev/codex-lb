@@ -19,6 +19,9 @@ services:
       - --reload
     volumes:
       - codex-lb-data:/var/lib/codex-lb
+    depends_on:
+      postgres:
+        condition: service_healthy
     develop:
       watch:
         - action: sync
@@ -60,13 +63,12 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    profiles: ["postgres"]
     environment:
       POSTGRES_USER: codex_lb
       POSTGRES_PASSWORD: codex_lb
       POSTGRES_DB: codex_lb
     ports:
-      - "5432:5432"
+      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U codex_lb -d codex_lb"]
       interval: 10s
