@@ -15,6 +15,9 @@ from app.modules.dashboard.builders import (
 )
 from app.modules.dashboard.repository import DashboardRepository
 from app.modules.dashboard.schemas import (
+    ClaudeCodeOverview,
+    ClaudeCodeSummary,
+    ClaudeCodeTrends,
     DashboardOverviewResponse,
     DashboardOverviewTimeframeKey,
     DashboardUsageWindows,
@@ -30,6 +33,7 @@ from app.modules.usage.depletion_service import (
     compute_aggregate_depletion,
     compute_depletion_for_account,
 )
+from app.modules.usage.schemas import TrendPoint
 
 
 class DashboardService:
@@ -43,6 +47,7 @@ class DashboardService:
     ) -> DashboardOverviewResponse:
         now = utcnow()
         overview_timeframe = resolve_overview_timeframe(timeframe_key)
+        dashboard_settings = await self._repo.get_dashboard_settings()
         accounts = await self._repo.list_accounts()
         primary_usage = await self._repo.latest_usage_by_account("primary")
         secondary_usage = await self._repo.latest_usage_by_account("secondary")
@@ -216,6 +221,13 @@ class DashboardService:
         pri_depletion, sec_depletion = _build_depletion_by_window(primary_history, secondary_history, now)
 
         additional_ts = await self._repo.latest_additional_recorded_at()
+        claude_code = None
+        if dashboard_settings.show_claude_code_dashboard:
+            claude_code = await self._build_claude_code_overview(
+                since=bucket_since,
+                bucket_seconds=overview_timeframe.bucket_seconds,
+                bucket_count=overview_timeframe.bucket_count,
+            )
         return DashboardOverviewResponse(
             last_sync_at=_latest_recorded_at(primary_usage, secondary_usage, additional_ts),
             timeframe=build_overview_timeframe(overview_timeframe),
@@ -225,6 +237,64 @@ class DashboardService:
             trends=trends,
             depletion_primary=pri_depletion,
             depletion_secondary=sec_depletion,
+            claudeCode=claude_code,
+        )
+
+    async def _build_claude_code_overview(
+        self,
+        *,
+        since: datetime,
+        bucket_seconds: int,
+        bucket_count: int,
+    ) -> ClaudeCodeOverview:
+        summary = await self._repo.claude_summary_since(since)
+        rows = await self._repo.claude_trends_by_bucket(since, bucket_seconds)
+        last_sync_at = await self._repo.claude_latest_bucket_at()
+        trend_map = {row.bucket_start: row for row in rows}
+        first_bucket = align_bucket_window_start(since, bucket_seconds)
+        buckets = [first_bucket + timedelta(seconds=bucket_seconds * idx) for idx in range(bucket_count)]
+
+        def _point(timestamp: datetime, value: float) -> TrendPoint:
+            return TrendPoint(t=timestamp, v=value)
+
+        sessions: list[TrendPoint] = []
+        cost: list[TrendPoint] = []
+        tokens: list[TrendPoint] = []
+        active_time: list[TrendPoint] = []
+        lines_changed: list[TrendPoint] = []
+        commits: list[TrendPoint] = []
+        pull_requests: list[TrendPoint] = []
+        for bucket_start in buckets:
+            row = trend_map.get(bucket_start)
+            sessions.append(_point(bucket_start, row.sessions if row else 0.0))
+            cost.append(_point(bucket_start, row.cost_usd if row else 0.0))
+            tokens.append(_point(bucket_start, row.tokens if row else 0.0))
+            active_time.append(_point(bucket_start, row.active_time_seconds if row else 0.0))
+            lines_changed.append(_point(bucket_start, row.lines_changed if row else 0.0))
+            commits.append(_point(bucket_start, row.commits if row else 0.0))
+            pull_requests.append(_point(bucket_start, row.pull_requests if row else 0.0))
+
+        return ClaudeCodeOverview(
+            lastSyncAt=last_sync_at,
+            summary=ClaudeCodeSummary(
+                sessions=summary.sessions,
+                costUsd=summary.cost_usd,
+                tokens=summary.tokens,
+                activeTimeSeconds=summary.active_time_seconds,
+                linesAdded=summary.lines_added,
+                linesRemoved=summary.lines_removed,
+                commits=summary.commits,
+                pullRequests=summary.pull_requests,
+            ),
+            trends=ClaudeCodeTrends(
+                sessions=sessions,
+                cost=cost,
+                tokens=tokens,
+                activeTime=active_time,
+                linesChanged=lines_changed,
+                commits=commits,
+                pullRequests=pull_requests,
+            ),
         )
 
 

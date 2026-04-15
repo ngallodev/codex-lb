@@ -40,6 +40,7 @@ from app.db.session import SessionLocal, close_db, init_background_db, init_db
 from app.modules.accounts import api as accounts_api
 from app.modules.api_keys import api as api_keys_api
 from app.modules.audit import api as audit_api
+from app.modules.claude_telemetry import build_claude_code_telemetry_scheduler
 from app.modules.dashboard import api as dashboard_api
 from app.modules.dashboard_auth import api as dashboard_auth_api
 from app.modules.firewall import api as firewall_api
@@ -126,9 +127,11 @@ async def lifespan(app: FastAPI):
     usage_scheduler = build_usage_refresh_scheduler()
     model_scheduler = build_model_refresh_scheduler()
     sticky_session_cleanup_scheduler = build_sticky_session_cleanup_scheduler()
+    claude_code_telemetry_scheduler = build_claude_code_telemetry_scheduler()
     await usage_scheduler.start()
     await model_scheduler.start()
     await sticky_session_cleanup_scheduler.start()
+    await claude_code_telemetry_scheduler.start()
     if settings.metrics_enabled and PROMETHEUS_AVAILABLE:
         import uvicorn
 
@@ -283,6 +286,7 @@ async def lifespan(app: FastAPI):
             metrics_server.should_exit = True
 
         await cache_poller.stop()
+        await claude_code_telemetry_scheduler.stop()
         await sticky_session_cleanup_scheduler.stop()
         await model_scheduler.stop()
         await usage_scheduler.stop()

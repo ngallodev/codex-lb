@@ -219,6 +219,28 @@ export function createDashboardOverview(
 			cost: createTrendPoints(0.065, timeframe.bucketCount, timeframe.bucketSeconds),
 			errorRate: createTrendPoints(0.03, timeframe.bucketCount, timeframe.bucketSeconds),
 		},
+		claudeCode: {
+			lastSyncAt: offsetIso(-3),
+			summary: {
+				sessions: 12,
+				costUsd: 4.25,
+				tokens: 120000,
+				activeTimeSeconds: 7200,
+				linesAdded: 830,
+				linesRemoved: 210,
+				commits: 7,
+				pullRequests: 3,
+			},
+			trends: {
+				sessions: createTrendPoints(1, timeframe.bucketCount, timeframe.bucketSeconds),
+				cost: createTrendPoints(0.12, timeframe.bucketCount, timeframe.bucketSeconds),
+				tokens: createTrendPoints(4000, timeframe.bucketCount, timeframe.bucketSeconds),
+				activeTime: createTrendPoints(240, timeframe.bucketCount, timeframe.bucketSeconds),
+				linesChanged: createTrendPoints(35, timeframe.bucketCount, timeframe.bucketSeconds),
+				commits: createTrendPoints(0.2, timeframe.bucketCount, timeframe.bucketSeconds),
+				pullRequests: createTrendPoints(0.1, timeframe.bucketCount, timeframe.bucketSeconds),
+			},
+		},
 		depletionPrimary: {
 			risk: 0.55,
 			riskLevel: "warning" as const,
@@ -347,6 +369,7 @@ export function createDashboardSettings(
 		totpRequiredOnLogin: false,
 		totpConfigured: true,
 		apiKeyAuthEnabled: true,
+		showClaudeCodeDashboard: false,
 		...overrides,
 	});
 }

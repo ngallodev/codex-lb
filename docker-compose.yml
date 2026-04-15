@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
     env_file:
       - .env.local
+    environment:
+      CODEX_LB_CLAUDE_CODE_TELEMETRY_SCRAPE_URL: http://otel-collector:9464/metrics
     ports:
       - "2455:2455"
       - "1455:1455"
@@ -30,6 +32,18 @@ services:
           path: ./uv.lock
         - action: rebuild
           path: ./Dockerfile
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.124.1
+    profiles: ["claude-telemetry"]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel/collector-claude-code.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "9464:9464"
     restart: unless-stopped
 
   frontend:

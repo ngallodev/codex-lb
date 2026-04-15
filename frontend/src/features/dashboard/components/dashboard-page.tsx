@@ -6,6 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { AlertMessage } from "@/components/alert-message";
 import { useAccountMutations } from "@/features/accounts/hooks/use-accounts";
 import { AccountCards } from "@/features/dashboard/components/account-cards";
+import { ClaudeCodeSection } from "@/features/dashboard/components/claude-code-section";
 import { DashboardSkeleton } from "@/features/dashboard/components/dashboard-skeleton";
 import { OverviewTimeframeSelect } from "@/features/dashboard/components/filters/overview-timeframe-select";
 import { RequestFilters } from "@/features/dashboard/components/filters/request-filters";
@@ -161,6 +162,8 @@ export function DashboardPage() {
       ) : (
         <>
           <StatsGrid stats={view.stats} />
+
+          {overview?.claudeCode ? <ClaudeCodeSection claudeCode={overview.claudeCode} /> : null}
 
             <UsageDonuts
               primaryItems={view.primaryUsageItems}

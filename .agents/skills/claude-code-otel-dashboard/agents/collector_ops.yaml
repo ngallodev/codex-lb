@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude OTEL Collector"
+  short_description: "Wire collector and compose integration for Claude telemetry"
+  default_prompt: "Implement the OpenTelemetry collector config and compose wiring needed for Claude Code metrics ingestion in codex-lb. Keep phase 1 metrics-only and expose a Prometheus scrape endpoint for the app."

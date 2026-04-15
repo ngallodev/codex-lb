@@ -18,6 +18,7 @@ class DashboardSettingsResponse(DashboardModel):
     totp_required_on_login: bool
     totp_configured: bool
     api_key_auth_enabled: bool
+    show_claude_code_dashboard: bool
 
 
 class DashboardSettingsUpdateRequest(DashboardModel):
@@ -35,6 +36,7 @@ class DashboardSettingsUpdateRequest(DashboardModel):
     import_without_overwrite: bool | None = None
     totp_required_on_login: bool | None = None
     api_key_auth_enabled: bool | None = None
+    show_claude_code_dashboard: bool | None = None
 
 
 class RuntimeConnectAddressResponse(DashboardModel):

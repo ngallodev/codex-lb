@@ -17,6 +17,7 @@ describe("DashboardSettingsSchema", () => {
       totpRequiredOnLogin: true,
       totpConfigured: false,
       apiKeyAuthEnabled: true,
+      showClaudeCodeDashboard: false,
     });
 
     expect(parsed.stickyThreadsEnabled).toBe(true);
@@ -25,6 +26,7 @@ describe("DashboardSettingsSchema", () => {
     expect(parsed.openaiCacheAffinityMaxAgeSeconds).toBe(300);
     expect(parsed.importWithoutOverwrite).toBe(true);
     expect(parsed.apiKeyAuthEnabled).toBe(true);
+    expect(parsed.showClaudeCodeDashboard).toBe(false);
   });
 });
 
@@ -39,6 +41,7 @@ describe("SettingsUpdateRequestSchema", () => {
       importWithoutOverwrite: true,
       totpRequiredOnLogin: true,
       apiKeyAuthEnabled: false,
+      showClaudeCodeDashboard: true,
     });
 
     expect(parsed.openaiCacheAffinityMaxAgeSeconds).toBe(120);
@@ -47,6 +50,7 @@ describe("SettingsUpdateRequestSchema", () => {
     expect(parsed.routingStrategy).toBe("usage_weighted");
     expect(parsed.totpRequiredOnLogin).toBe(true);
     expect(parsed.apiKeyAuthEnabled).toBe(false);
+    expect(parsed.showClaudeCodeDashboard).toBe(true);
   });
 
   it("accepts payload without optional fields", () => {

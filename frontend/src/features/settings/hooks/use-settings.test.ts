@@ -42,6 +42,7 @@ describe("useSettings", () => {
       importWithoutOverwrite: true,
       totpRequiredOnLogin: false,
       apiKeyAuthEnabled: true,
+      showClaudeCodeDashboard: true,
     });
 
     await waitFor(() => {

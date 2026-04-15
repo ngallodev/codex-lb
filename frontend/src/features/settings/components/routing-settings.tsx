@@ -118,6 +118,20 @@ export function RoutingSettings({ settings, busy, onSave }: RoutingSettingsProps
             />
           </div>
 
+          <div className="flex items-center justify-between p-3">
+            <div>
+              <p className="text-sm font-medium">Claude Code dashboard section</p>
+              <p className="text-xs text-muted-foreground">
+                Restore the original dashboard UI by turning this section off.
+              </p>
+            </div>
+            <Switch
+              checked={settings.showClaudeCodeDashboard}
+              disabled={busy}
+              onCheckedChange={(checked) => save({ showClaudeCodeDashboard: checked })}
+            />
+          </div>
+
           <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium">Prompt-cache affinity TTL</p>

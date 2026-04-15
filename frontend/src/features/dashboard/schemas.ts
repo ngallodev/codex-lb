@@ -70,6 +70,33 @@ export const MetricsTrendsSchema = z.object({
   errorRate: z.array(TrendPointSchema),
 });
 
+export const ClaudeCodeSummarySchema = z.object({
+  sessions: z.number().int().nonnegative(),
+  costUsd: z.number(),
+  tokens: z.number().int().nonnegative(),
+  activeTimeSeconds: z.number().nonnegative(),
+  linesAdded: z.number().int().nonnegative(),
+  linesRemoved: z.number().int().nonnegative(),
+  commits: z.number().int().nonnegative(),
+  pullRequests: z.number().int().nonnegative(),
+});
+
+export const ClaudeCodeTrendsSchema = z.object({
+  sessions: z.array(TrendPointSchema),
+  cost: z.array(TrendPointSchema),
+  tokens: z.array(TrendPointSchema),
+  activeTime: z.array(TrendPointSchema),
+  linesChanged: z.array(TrendPointSchema),
+  commits: z.array(TrendPointSchema),
+  pullRequests: z.array(TrendPointSchema),
+});
+
+export const ClaudeCodeOverviewSchema = z.object({
+  lastSyncAt: z.string().datetime({ offset: true }).nullable(),
+  summary: ClaudeCodeSummarySchema,
+  trends: ClaudeCodeTrendsSchema,
+});
+
 export const DepletionSchema = z.object({
   risk: z.number(),
   riskLevel: z.enum(["safe", "warning", "danger", "critical"]),
@@ -94,6 +121,7 @@ export const DashboardOverviewSchema = z.object({
     secondary: UsageWindowSchema.nullable(),
   }),
   trends: MetricsTrendsSchema,
+  claudeCode: ClaudeCodeOverviewSchema.nullable().optional(),
   additionalQuotas: z.array(AccountAdditionalQuotaSchema).default([]),
   depletionPrimary: DepletionSchema.nullable().optional(),
   depletionSecondary: DepletionSchema.nullable().optional(),
@@ -151,6 +179,7 @@ export type DashboardOverview = z.infer<typeof DashboardOverviewSchema>;
 export type DashboardOverviewTimeframe = z.infer<typeof DashboardOverviewTimeframeSchema>;
 export type TrendPoint = z.infer<typeof TrendPointSchema>;
 export type MetricsTrends = z.infer<typeof MetricsTrendsSchema>;
+export type ClaudeCodeOverview = z.infer<typeof ClaudeCodeOverviewSchema>;
 export type UsageWindow = z.infer<typeof UsageWindowSchema>;
 export type RequestLog = z.infer<typeof RequestLogSchema>;
 export type RequestLogsResponse = z.infer<typeof RequestLogsResponseSchema>;

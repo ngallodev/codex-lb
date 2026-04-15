@@ -237,6 +237,10 @@ class Settings(BaseSettings):
     # OpenTelemetry
     otel_enabled: bool = False
     otel_exporter_endpoint: str = ""
+    claude_code_telemetry_enabled: bool = False
+    claude_code_telemetry_scrape_url: str = "http://otel-collector:9464/metrics"
+    claude_code_telemetry_scrape_interval_seconds: int = Field(default=60, gt=0)
+    claude_code_telemetry_retention_days: int = Field(default=30, gt=0)
 
     # Shutdown drain
     shutdown_drain_timeout_seconds: int = 30

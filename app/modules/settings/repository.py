@@ -31,6 +31,7 @@ class SettingsRepository:
             bootstrap_token_encrypted=None,
             bootstrap_token_hash=None,
             api_key_auth_enabled=False,
+            show_claude_code_dashboard=False,
             totp_secret_encrypted=None,
             totp_last_verified_step=None,
         )
@@ -60,6 +61,7 @@ class SettingsRepository:
         import_without_overwrite: bool | None = None,
         totp_required_on_login: bool | None = None,
         api_key_auth_enabled: bool | None = None,
+        show_claude_code_dashboard: bool | None = None,
     ) -> DashboardSettings:
         settings = await self.get_or_create()
         if sticky_threads_enabled is not None:
@@ -86,6 +88,8 @@ class SettingsRepository:
             settings.totp_required_on_login = totp_required_on_login
         if api_key_auth_enabled is not None:
             settings.api_key_auth_enabled = api_key_auth_enabled
+        if show_claude_code_dashboard is not None:
+            settings.show_claude_code_dashboard = show_claude_code_dashboard
         await self.commit_refresh(settings)
         return settings
 

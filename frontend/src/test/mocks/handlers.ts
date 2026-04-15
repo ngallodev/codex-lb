@@ -83,6 +83,7 @@ const SettingsPayloadSchema = z
 		totpRequiredOnLogin: z.boolean().optional(),
 		totpConfigured: z.boolean().optional(),
 		apiKeyAuthEnabled: z.boolean().optional(),
+		showClaudeCodeDashboard: z.boolean().optional(),
 	})
 	.passthrough();
 

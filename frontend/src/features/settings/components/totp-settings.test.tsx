@@ -27,6 +27,7 @@ const baseSettings = {
   totpRequiredOnLogin: false,
   totpConfigured: false,
   apiKeyAuthEnabled: true,
+  showClaudeCodeDashboard: false,
 };
 
 function renderWithClient(ui: React.ReactElement) {
@@ -111,6 +112,7 @@ describe("TotpSettings", () => {
       importWithoutOverwrite: false,
       totpRequiredOnLogin: true,
       apiKeyAuthEnabled: true,
+      showClaudeCodeDashboard: false,
     });
   });
 

@@ -15,6 +15,7 @@ const BASE_SETTINGS: DashboardSettings = {
   totpRequiredOnLogin: false,
   totpConfigured: false,
   apiKeyAuthEnabled: true,
+  showClaudeCodeDashboard: false,
 };
 
 describe("RoutingSettings", () => {
@@ -39,6 +40,7 @@ describe("RoutingSettings", () => {
       importWithoutOverwrite: false,
       totpRequiredOnLogin: false,
       apiKeyAuthEnabled: true,
+      showClaudeCodeDashboard: false,
     });
 
     rerender(
@@ -61,6 +63,7 @@ describe("RoutingSettings", () => {
       importWithoutOverwrite: false,
       totpRequiredOnLogin: false,
       apiKeyAuthEnabled: true,
+      showClaudeCodeDashboard: false,
     });
   });
 
@@ -88,6 +91,7 @@ describe("RoutingSettings", () => {
       importWithoutOverwrite: false,
       totpRequiredOnLogin: false,
       apiKeyAuthEnabled: true,
+      showClaudeCodeDashboard: false,
     });
   });
 

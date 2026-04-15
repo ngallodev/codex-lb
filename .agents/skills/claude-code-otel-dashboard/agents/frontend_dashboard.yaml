@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude OTEL Frontend"
+  short_description: "Implement the dashboard and settings UI for Claude telemetry"
+  default_prompt: "Implement the frontend dashboard section and settings toggle for Claude Code telemetry in codex-lb. Preserve the existing dashboard page and hide the new UI completely when the feature flag is off."

@@ -88,6 +88,7 @@ async def get_settings(
         totp_required_on_login=settings.totp_required_on_login,
         totp_configured=settings.totp_configured,
         api_key_auth_enabled=settings.api_key_auth_enabled,
+        show_claude_code_dashboard=settings.show_claude_code_dashboard,
     )
 
 
@@ -145,6 +146,11 @@ async def update_settings(
                     if payload.api_key_auth_enabled is not None
                     else current.api_key_auth_enabled
                 ),
+                show_claude_code_dashboard=(
+                    payload.show_claude_code_dashboard
+                    if payload.show_claude_code_dashboard is not None
+                    else current.show_claude_code_dashboard
+                ),
             )
         )
     except ValueError as exc:
@@ -163,6 +169,7 @@ async def update_settings(
             "import_without_overwrite",
             "totp_required_on_login",
             "api_key_auth_enabled",
+            "show_claude_code_dashboard",
         )
         if getattr(current, field_name) != getattr(updated, field_name)
     ]
@@ -184,4 +191,5 @@ async def update_settings(
         totp_required_on_login=updated.totp_required_on_login,
         totp_configured=updated.totp_configured,
         api_key_auth_enabled=updated.api_key_auth_enabled,
+        show_claude_code_dashboard=updated.show_claude_code_dashboard,
     )

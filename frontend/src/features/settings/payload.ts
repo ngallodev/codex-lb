@@ -13,6 +13,7 @@ export function buildSettingsUpdateRequest(
     importWithoutOverwrite: settings.importWithoutOverwrite,
     totpRequiredOnLogin: settings.totpRequiredOnLogin,
     apiKeyAuthEnabled: settings.apiKeyAuthEnabled,
+    showClaudeCodeDashboard: settings.showClaudeCodeDashboard,
     ...patch,
   };
 }

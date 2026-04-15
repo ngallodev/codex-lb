@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude OTEL Backend"
+  short_description: "Implement Claude telemetry ingestion and dashboard aggregation"
+  default_prompt: "Implement the backend telemetry ingestion, storage, scheduler, and dashboard API changes for Claude Code OTEL metrics in codex-lb. Follow project conventions and keep the feature reversible via settings."

@@ -233,6 +233,12 @@ class DashboardSettings(Base):
         default=False,
         nullable=False,
     )
+    show_claude_code_dashboard: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+        nullable=False,
+    )
     totp_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     totp_last_verified_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
     http_responses_session_bridge_prompt_cache_idle_ttl_seconds: Mapped[int] = mapped_column(
@@ -260,6 +266,57 @@ class DashboardSettings(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class ClaudeCodeTelemetryState(Base):
+    __tablename__ = "claude_code_telemetry_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    last_scraped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sessions_count: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    cost_usage_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_input: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_output: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_cache_read: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_cache_creation: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    active_time_user_seconds: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default=text("0")
+    )
+    active_time_cli_seconds: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default=text("0")
+    )
+    lines_added: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    lines_removed: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    commits_count: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    pull_requests_count: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+
+
+class ClaudeCodeTelemetryBucket(Base):
+    __tablename__ = "claude_code_telemetry_buckets"
+    __table_args__ = (
+        UniqueConstraint("bucket_start", name="uq_claude_code_telemetry_bucket_start"),
+        Index("ix_claude_code_telemetry_bucket_start", "bucket_start"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bucket_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=func.now())
+    sessions_count: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    cost_usage_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_input: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_output: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_cache_read: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    token_cache_creation: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    active_time_user_seconds: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default=text("0")
+    )
+    active_time_cli_seconds: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0, server_default=text("0")
+    )
+    lines_added: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    lines_removed: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    commits_count: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
+    pull_requests_count: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default=text("0"))
 
 
 class ApiFirewallAllowlist(Base):

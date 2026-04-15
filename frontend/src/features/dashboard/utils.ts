@@ -1,7 +1,18 @@
-import { Activity, AlertTriangle, Coins, DollarSign, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Coins,
+  DollarSign,
+  GitCommitHorizontal,
+  GitPullRequest,
+  ScrollText,
+  TimerReset,
+  type LucideIcon,
+} from "lucide-react";
 
 import type {
   AccountSummary,
+  ClaudeCodeOverview,
   DashboardOverview,
   Depletion,
   RequestLog,
@@ -251,4 +262,66 @@ export function buildDashboardView(
     safeLinePrimary: buildDepletionView(overview.depletionPrimary),
     safeLineSecondary: buildDepletionView(overview.depletionSecondary),
   };
+}
+
+export function buildClaudeCodeStats(claudeCode: ClaudeCodeOverview): DashboardStat[] {
+  const summary = claudeCode.summary;
+  return [
+    {
+      label: "Claude cost",
+      value: formatCurrency(summary.costUsd),
+      meta: "Claude Code OTEL",
+      icon: DollarSign,
+      trend: trendPointsToValues(claudeCode.trends.cost),
+      trendColor: TREND_COLORS[0],
+    },
+    {
+      label: "Claude tokens",
+      value: formatCompactNumber(summary.tokens),
+      meta: "All token types",
+      icon: Coins,
+      trend: trendPointsToValues(claudeCode.trends.tokens),
+      trendColor: TREND_COLORS[1],
+    },
+    {
+      label: "Claude sessions",
+      value: formatCompactNumber(summary.sessions),
+      meta: `${formatCompactNumber(summary.commits)} commits / ${formatCompactNumber(summary.pullRequests)} PRs`,
+      icon: ScrollText,
+      trend: trendPointsToValues(claudeCode.trends.sessions),
+      trendColor: TREND_COLORS[2],
+    },
+    {
+      label: "Claude active time",
+      value: formatWindowMinutes(Math.round(summary.activeTimeSeconds / 60)),
+      meta: `${formatCompactNumber(summary.linesAdded + summary.linesRemoved)} lines changed`,
+      icon: TimerReset,
+      trend: trendPointsToValues(claudeCode.trends.activeTime),
+      trendColor: TREND_COLORS[3],
+    },
+    {
+      label: "Lines added",
+      value: formatCompactNumber(summary.linesAdded),
+      meta: `${formatCompactNumber(summary.linesRemoved)} removed`,
+      icon: Activity,
+      trend: trendPointsToValues(claudeCode.trends.linesChanged),
+      trendColor: TREND_COLORS[0],
+    },
+    {
+      label: "Commits",
+      value: formatCompactNumber(summary.commits),
+      meta: `${formatCompactNumber(summary.pullRequests)} PRs`,
+      icon: GitCommitHorizontal,
+      trend: trendPointsToValues(claudeCode.trends.commits),
+      trendColor: TREND_COLORS[1],
+    },
+    {
+      label: "Pull requests",
+      value: formatCompactNumber(summary.pullRequests),
+      meta: claudeCode.lastSyncAt ? `Synced ${claudeCode.lastSyncAt}` : "No sync yet",
+      icon: GitPullRequest,
+      trend: trendPointsToValues(claudeCode.trends.pullRequests),
+      trendColor: TREND_COLORS[2],
+    },
+  ];
 }

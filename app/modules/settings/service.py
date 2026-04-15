@@ -19,6 +19,7 @@ class DashboardSettingsData:
     totp_required_on_login: bool
     totp_configured: bool
     api_key_auth_enabled: bool
+    show_claude_code_dashboard: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +35,7 @@ class DashboardSettingsUpdateData:
     import_without_overwrite: bool
     totp_required_on_login: bool
     api_key_auth_enabled: bool
+    show_claude_code_dashboard: bool
 
 
 class SettingsService:
@@ -57,6 +59,7 @@ class SettingsService:
             totp_required_on_login=row.totp_required_on_login,
             totp_configured=row.totp_secret_encrypted is not None,
             api_key_auth_enabled=row.api_key_auth_enabled,
+            show_claude_code_dashboard=row.show_claude_code_dashboard,
         )
 
     async def update_settings(self, payload: DashboardSettingsUpdateData) -> DashboardSettingsData:
@@ -77,6 +80,7 @@ class SettingsService:
             import_without_overwrite=payload.import_without_overwrite,
             totp_required_on_login=payload.totp_required_on_login,
             api_key_auth_enabled=payload.api_key_auth_enabled,
+            show_claude_code_dashboard=payload.show_claude_code_dashboard,
         )
         return DashboardSettingsData(
             sticky_threads_enabled=row.sticky_threads_enabled,
@@ -93,4 +97,5 @@ class SettingsService:
             totp_required_on_login=row.totp_required_on_login,
             totp_configured=row.totp_secret_encrypted is not None,
             api_key_auth_enabled=row.api_key_auth_enabled,
+            show_claude_code_dashboard=row.show_claude_code_dashboard,
         )

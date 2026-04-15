@@ -6,10 +6,11 @@ import pytest
 
 from app.core.crypto import TokenEncryptor
 from app.core.utils.time import naive_utc_to_epoch, utcnow
-from app.db.models import Account, AccountStatus
+from app.db.models import Account, AccountStatus, ClaudeCodeTelemetryBucket
 from app.db.session import SessionLocal
 from app.modules.accounts.repository import AccountsRepository
 from app.modules.request_logs.repository import RequestLogsRepository
+from app.modules.settings.repository import SettingsRepository
 from app.modules.usage.repository import UsageRepository
 
 pytestmark = pytest.mark.integration
@@ -100,6 +101,52 @@ async def test_dashboard_overview_combines_data(async_client, db_setup):
     # At least one trend point should have non-zero request count
     request_values = [p["v"] for p in trends["requests"]]
     assert any(v > 0 for v in request_values)
+    assert payload["claudeCode"] is None
+
+
+@pytest.mark.asyncio
+async def test_dashboard_overview_includes_claude_code_metrics_when_enabled(async_client, db_setup):
+    now = utcnow().replace(microsecond=0)
+
+    async with SessionLocal() as session:
+        settings_repo = SettingsRepository(session)
+        await settings_repo.get_or_create()
+        await settings_repo.update(show_claude_code_dashboard=True)
+
+        bucket = ClaudeCodeTelemetryBucket(
+            bucket_start=now - timedelta(hours=1),
+            recorded_at=now,
+            sessions_count=2,
+            cost_usage_usd=1.25,
+            token_input=100,
+            token_output=40,
+            token_cache_read=10,
+            token_cache_creation=5,
+            active_time_user_seconds=120,
+            active_time_cli_seconds=180,
+            lines_added=25,
+            lines_removed=5,
+            commits_count=3,
+            pull_requests_count=1,
+        )
+        session.add(bucket)
+        await session.commit()
+
+    response = await async_client.get("/api/dashboard/overview")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["claudeCode"] is not None
+    assert payload["claudeCode"]["summary"]["sessions"] == 2
+    assert payload["claudeCode"]["summary"]["costUsd"] == pytest.approx(1.25)
+    assert payload["claudeCode"]["summary"]["tokens"] == 155
+    assert payload["claudeCode"]["summary"]["activeTimeSeconds"] == pytest.approx(300)
+    assert payload["claudeCode"]["summary"]["linesAdded"] == 25
+    assert payload["claudeCode"]["summary"]["linesRemoved"] == 5
+    assert payload["claudeCode"]["summary"]["commits"] == 3
+    assert payload["claudeCode"]["summary"]["pullRequests"] == 1
+    assert len(payload["claudeCode"]["trends"]["sessions"]) == 28
+    assert any(point["v"] > 0 for point in payload["claudeCode"]["trends"]["sessions"])
 
 
 @pytest.mark.asyncio
