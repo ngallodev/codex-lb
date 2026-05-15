@@ -21,7 +21,7 @@ export default defineConfig({
     },
   },
   server: {
-    allowedHosts: ["r6d12", "*"],
+    allowedHosts: ["r6d12","codex-lb.home.arpa", "*"],
     proxy: {
       "/api": proxyTarget,
       "/v1": proxyTarget,
