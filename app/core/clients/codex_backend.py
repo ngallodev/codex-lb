@@ -17,6 +17,7 @@ import aiohttp
 from app.core.clients.codex import CodexClient, create_codex_session, release_codex_response
 from app.core.clients.http import HttpClientLease, acquire_http_client
 from app.core.clients.proxy import _build_upstream_headers
+from app.core.clock import REAL_CLOCK, Clock
 from app.core.config.dashboard_overrides import with_dashboard_overrides
 from app.core.config.settings import get_settings
 from app.core.upstream_proxy import ResolvedUpstreamRoute
@@ -38,13 +39,22 @@ class CodexBackendStream:
     _response: Any
     _owned_session: aiohttp.ClientSession | None = None
     _lease: HttpClientLease | None = None
+    _clock: Clock = REAL_CLOCK
+    opened_at: float = field(default=0.0, init=False)
+    bytes_relayed: int = field(default=0, init=False)
+    body_completed: bool = field(default=False, init=False)
     _closed: bool = field(default=False, init=False)
+
+    def __post_init__(self) -> None:
+        self.opened_at = self._clock.monotonic()
 
     async def iter_body(self) -> AsyncIterator[bytes]:
         try:
             async for chunk in self._response.content.iter_chunked(_BODY_CHUNK_BYTES):
                 if chunk:
+                    self.bytes_relayed += len(chunk)
                     yield chunk
+            self.body_completed = True
         finally:
             await self.aclose()
 

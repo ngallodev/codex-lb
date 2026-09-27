@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.routing import APIRoute
 from starlette.datastructures import Headers
+from starlette.requests import ClientDisconnect
 from starlette.routing import Match
 from starlette.types import Receive, Scope, Send
 
@@ -29,6 +30,7 @@ from app.core.auth.dependencies import (
 from app.core.clients.codex import CodexTransportError
 from app.core.clients.codex_backend import CodexBackendStream, open_codex_backend_stream
 from app.core.clients.proxy import CODEX_LB_REQUIRED_CAPABILITY_HEADER
+from app.core.clock import clock_for
 from app.core.errors import openai_error
 from app.modules.proxy import api as proxy_api
 from app.modules.proxy.schemas import ConsumeRateLimitResetCreditResponse, RateLimitStatusPayload
@@ -73,44 +75,76 @@ class _UpstreamStreamingResponse(StreamingResponse):
     HEAD), so the release is also owned here.
     """
 
-    def __init__(self, stream: CodexBackendStream) -> None:
+    def __init__(self, stream: CodexBackendStream, *, method: str, path: str, account_id: str) -> None:
         super().__init__(
             stream.iter_body(),
             status_code=stream.status_code,
             headers={key: value for key, value in stream.headers.items() if key.lower() in _RESPONSE_HEADERS},
         )
         self._upstream = stream
+        self._method = method
+        self._path = path
+        self._account_id = account_id
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        outcome: str | None = None
+        error: str | None = None
         try:
             await super().__call__(scope, receive, send)
+        except (asyncio.CancelledError, ClientDisconnect, OSError):
+            outcome = "client_disconnect"
+            raise
+        except Exception as exc:
+            outcome, error = "error", type(exc).__name__
+            raise
         finally:
             await self._upstream.aclose()
+            if outcome is None:
+                # Under ASGI < 2.4 Starlette ends a stream on disconnect without
+                # raising here; an unfinished body is the tell.
+                finished = self._upstream.body_completed or self._method == "HEAD"
+                outcome = "completed" if finished else "client_disconnect"
+            self._log_end(outcome, error)
+
+    def _log_end(self, outcome: str, error: str | None) -> None:
+        stream = self._upstream
+        level = logging.WARNING if outcome == "error" or stream.status_code >= 500 else logging.INFO
+        logger.log(
+            level,
+            "Codex backend passthrough method=%s path=%s account_id=%s status=%s outcome=%s duration_ms=%d bytes=%d%s",
+            self._method,
+            self._path,
+            self._account_id,
+            stream.status_code,
+            outcome,
+            (clock_for(stream).monotonic() - stream.opened_at) * 1000,
+            stream.bytes_relayed,
+            f" error={error}" if error else "",
+        )
 
 
-def _forwardable_rest(rest: str) -> bool:
-    """Whether ``rest`` stays inside upstream ``/backend-api/`` and outside pool-routed namespaces."""
+def _decline_reason(rest: str, headers: Headers) -> str | None:
+    """Why the passthrough must not forward this request, or ``None`` if it may."""
 
     segments = rest.split("/")
-    return not (
+    if (
         not rest
         or rest.startswith("/")
         or any(segment in {".", ".."} for segment in segments)
         or any(char in _FORBIDDEN_PATH_CHARACTERS or ord(char) < 0x20 for char in rest)
-        or segments[0] in _CLOSED_NAMESPACES
-    )
-
-
-def _carries_chatgpt_identity(headers: Headers) -> bool:
-    """Whether the caller presents a ChatGPT bearer rather than nothing or a codex-lb principal."""
-
+    ):
+        return "unsafe_path"
+    if segments[0] in _CLOSED_NAMESPACES:
+        return "closed_namespace"
     if headers.getlist(CODEX_LB_REQUIRED_CAPABILITY_HEADER):
-        return False
+        return "capability_header"
     scheme, _, token = (headers.get("authorization") or "").strip().partition(" ")
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
-        return False
-    return not (token.startswith("sk-clb-") and not headers.get("chatgpt-account-id"))
+        return "no_bearer"
+    if token.startswith("sk-clb-") and not headers.get("chatgpt-account-id"):
+        return "api_key_principal"
+    return None
 
 
 class _ForwardableBackendRoute(APIRoute):
@@ -125,9 +159,14 @@ class _ForwardableBackendRoute(APIRoute):
         match, child_scope = super().matches(scope)
         if match is Match.NONE:
             return match, child_scope
-        if not _forwardable_rest(child_scope["path_params"]["rest"]) or not _carries_chatgpt_identity(
-            Headers(scope=scope)
-        ):
+        reason = _decline_reason(child_scope["path_params"]["rest"], Headers(scope=scope))
+        if reason is not None:
+            logger.debug(
+                "Codex backend passthrough declined method=%s path=%s reason=%s",
+                scope.get("method"),
+                scope.get("path"),
+                reason,
+            )
             return Match.NONE, {}
         return match, child_scope
 
@@ -185,14 +224,14 @@ async def codex_backend_passthrough(
             status_code=502,
             content=openai_error("upstream_unavailable", "Upstream ChatGPT backend is unavailable"),
         )
-    logger.info(
-        "Codex backend passthrough method=%s path=%s account_id=%s status=%s",
+    logger.debug(
+        "Codex backend passthrough opened method=%s path=%s account_id=%s status=%s",
         request.method,
         upstream_rest,
         identity.account_id,
         stream.status_code,
     )
-    return _UpstreamStreamingResponse(stream)
+    return _UpstreamStreamingResponse(stream, method=request.method, path=upstream_rest, account_id=identity.account_id)
 
 
 router.add_api_route(

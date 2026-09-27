@@ -17,6 +17,10 @@
 - [x] 3.4 Egress: an account bound to an upstream proxy pool forwards through that route; an unresolvable route returns 503 `upstream_error` with no direct-egress request.
 - [x] 3.5 Path-drift fixture: every non-MCP path captured from Codex 0.157.0 in the `/backend-api` style (see context.md) is forwarded to the identical upstream path.
 
+## 5. Operator log seams (added 2026-09-27 after deploy review)
+
+- [x] 5.1 Log one stream-end record per forwarded call (method, path, account, status, outcome, duration_ms, bytes; WARNING on `error` or 5xx), a DEBUG record with the reason when the route declines a request, and a DEBUG identity record with egress. Verify with the log-seam tests in `tests/integration/test_codex_backend_passthrough.py` (completed, upstream 5xx, mid-stream failure, client disconnect, four decline reasons, proxy-pool egress).
+
 ## 4. Docs and validation
 
 - [x] 4.1 Update the "Showing pooled quota in Codex" section in `docs/client-setup.md` to the `/backend-api` setting and state that connectors are unavailable with it; link to `openspec/specs/codex-backend-passthrough/`.

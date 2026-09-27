@@ -9,6 +9,7 @@ httpx's buffering ASGI transport.
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -99,6 +100,15 @@ class _FakeChatGPT:
             await asyncio.wait_for(self.release_second_event.wait(), timeout=10)
             await response.write(b"event: message\ndata: second\n\n")
             await response.write_eof()
+            return response
+        if path == "/backend-api/wham/boom":
+            return web.json_response({"detail": "upstream exploded"}, status=502)
+        if path == "/backend-api/wham/broken":
+            response = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
+            await response.prepare(request)
+            await response.write(b"data: partial\n\n")
+            assert request.transport is not None
+            request.transport.abort()  # drop mid-body: the chunked stream never terminates
             return response
         if path == "/backend-api/wham/hold":
             response = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
@@ -503,3 +513,144 @@ async def test_codex_0157_backend_paths_are_forwarded_unchanged(
     assert [seen.path_qs for seen in direct_upstream.seen] == [
         f"/backend-api/{path}" for path in _CODEX_0157_BACKEND_PATHS
     ]
+
+
+# --- log seams ---------------------------------------------------------------
+
+_PASSTHROUGH_LOGGER = "app.modules.proxy.codex_backend_passthrough"
+
+
+@pytest.fixture
+def passthrough_logs(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+    caplog.set_level(logging.DEBUG, logger=_PASSTHROUGH_LOGGER)
+    caplog.set_level(logging.DEBUG, logger="app.core.auth.dependencies")
+    return caplog
+
+
+def _lines(caplog: pytest.LogCaptureFixture, fragment: str) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if fragment in record.getMessage()]
+
+
+async def _wait_for_line(caplog: pytest.LogCaptureFixture, fragment: str) -> logging.LogRecord:
+    for _ in range(100):
+        found = _lines(caplog, fragment)
+        if found:
+            return found[-1]
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"no log line containing {fragment!r}")
+
+
+@pytest.mark.asyncio
+async def test_completed_call_logs_outcome_duration_and_bytes(
+    live_base_url: str, direct_upstream: _FakeChatGPT, passthrough_logs: pytest.LogCaptureFixture
+) -> None:
+    await _seed_account("acc-log-ok", "cgpt-log-ok")
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.get("/backend-api/wham/accounts/check", headers=_caller_headers("cgpt-log-ok"))
+
+    record = await _wait_for_line(passthrough_logs, "path=wham/accounts/check account_id=acc-log-ok status=200")
+    assert record.levelno == logging.INFO
+    message = record.getMessage()
+    assert "outcome=completed" in message
+    assert f"bytes={len(response.content)}" in message
+    assert "duration_ms=" in message
+    identity = await _wait_for_line(passthrough_logs, "identity account_id=acc-log-ok")
+    assert identity.levelno == logging.DEBUG
+    assert "egress=direct" in identity.getMessage()
+    assert direct_upstream.seen
+
+
+@pytest.mark.asyncio
+async def test_upstream_5xx_logs_at_warning(
+    live_base_url: str, direct_upstream: _FakeChatGPT, passthrough_logs: pytest.LogCaptureFixture
+) -> None:
+    await _seed_account("acc-log-5xx", "cgpt-log-5xx")
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.get("/backend-api/wham/boom", headers=_caller_headers("cgpt-log-5xx"))
+
+    assert response.status_code == 502
+    record = await _wait_for_line(passthrough_logs, "path=wham/boom")
+    assert record.levelno == logging.WARNING
+    assert "status=502 outcome=completed" in record.getMessage()
+    assert direct_upstream.seen
+
+
+@pytest.mark.asyncio
+async def test_mid_stream_upstream_failure_logs_error_outcome(
+    live_base_url: str, direct_upstream: _FakeChatGPT, passthrough_logs: pytest.LogCaptureFixture
+) -> None:
+    await _seed_account("acc-log-broken", "cgpt-log-broken")
+    async with httpx.AsyncClient(base_url=live_base_url, timeout=10) as client:
+        with pytest.raises(httpx.HTTPError):
+            async with client.stream(
+                "GET", "/backend-api/wham/broken", headers=_caller_headers("cgpt-log-broken")
+            ) as resp:
+                async for _ in resp.aiter_bytes():
+                    pass
+
+    record = await _wait_for_line(passthrough_logs, "path=wham/broken")
+    assert record.levelno == logging.WARNING
+    assert "outcome=error" in record.getMessage()
+    assert "error=ClientPayloadError" in record.getMessage()
+    assert direct_upstream.seen
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_logs_client_disconnect_outcome(
+    live_base_url: str, direct_upstream: _FakeChatGPT, passthrough_logs: pytest.LogCaptureFixture
+) -> None:
+    await _seed_account("acc-log-hold", "cgpt-log-hold")
+    async with httpx.AsyncClient(base_url=live_base_url, timeout=10) as client:
+        async with client.stream("GET", "/backend-api/wham/hold", headers=_caller_headers("cgpt-log-hold")) as resp:
+            await asyncio.wait_for(resp.aiter_bytes().__anext__(), timeout=5)
+
+    await asyncio.wait_for(direct_upstream.hold_disconnected.wait(), timeout=10)
+    record = await _wait_for_line(passthrough_logs, "path=wham/hold")
+    assert record.levelno == logging.INFO
+    assert "outcome=client_disconnect" in record.getMessage()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "headers", "reason"),
+    [
+        ("/backend-api/does-not-exist", {}, "no_bearer"),
+        ("/backend-api/codex/not-served", {"Authorization": f"Bearer {_CALLER_TOKEN}"}, "closed_namespace"),
+        ("/backend-api/wham/settings/user", {"Authorization": "Bearer sk-clb-key"}, "api_key_principal"),
+        (
+            "/backend-api/wham/settings/user",
+            {"Authorization": f"Bearer {_CALLER_TOKEN}", "X-Codex-LB-Required-Capability": "x"},
+            "capability_header",
+        ),
+    ],
+)
+async def test_declines_log_their_reason_at_debug(
+    live_base_url: str,
+    direct_upstream: _FakeChatGPT,
+    passthrough_logs: pytest.LogCaptureFixture,
+    path: str,
+    headers: dict[str, str],
+    reason: str,
+) -> None:
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        await client.get(path, headers=headers)
+
+    record = await _wait_for_line(passthrough_logs, f"declined method=GET path={path} reason={reason}")
+    assert record.levelno == logging.DEBUG
+    assert direct_upstream.seen == []
+
+
+@pytest.mark.asyncio
+async def test_identity_logs_proxy_pool_egress(
+    live_base_url: str,
+    fake_chatgpt: _FakeChatGPT,
+    monkeypatch: pytest.MonkeyPatch,
+    passthrough_logs: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(get_settings(), "upstream_base_url", "http://upstream.invalid/backend-api")
+    await _seed_account("acc-log-proxied", "cgpt-log-proxied", proxy_port=fake_chatgpt.port)
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        await client.get("/backend-api/wham/accounts/check", headers=_caller_headers("cgpt-log-proxied"))
+
+    record = await _wait_for_line(passthrough_logs, "identity account_id=acc-log-proxied")
+    assert "egress=account_bound:pool-acc-log-proxied" in record.getMessage()

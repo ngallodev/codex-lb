@@ -730,7 +730,13 @@ async def validate_codex_backend_passthrough_identity(request: Request) -> Codex
     token, account_id = _codex_caller_credentials(request)
     if not account_id:
         raise ProxyAuthError("Missing chatgpt-account-id header")
-    return await _resolve_codex_caller_identity(token, account_id)
+    identity = await _resolve_codex_caller_identity(token, account_id)
+    logger.debug(
+        "Codex backend passthrough identity account_id=%s egress=%s",
+        identity.account_id,
+        f"{identity.route.mode}:{identity.route.pool_id}" if identity.route is not None else "direct",
+    )
+    return identity
 
 
 async def validate_codex_provider_usage_identity(request: Request) -> ApiKeyData | None:

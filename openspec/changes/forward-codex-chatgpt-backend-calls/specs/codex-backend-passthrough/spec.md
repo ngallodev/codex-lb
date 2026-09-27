@@ -181,3 +181,38 @@ other header outside the allowlist back to the caller.
 - **WHEN** a caller that sent a `Cookie` header makes a forwarded request
 - **THEN** the upstream request carries no `Cookie` header
 - **AND** the response to the caller carries no `Set-Cookie` header
+
+### Requirement: Forwarded calls and declines are logged for operators
+
+Each forwarded call MUST produce one log record when its response ends. The
+record MUST include the method, the forwarded path, the matched pool account
+id, the upstream status, an outcome of `completed`, `client_disconnect`, or
+`error` (with the error type), the duration in milliseconds, and the number of
+body bytes relayed. It MUST be logged at WARNING when the outcome is `error` or
+the upstream status is 5xx, and at INFO otherwise. A request the passthrough
+declines to forward MUST produce a DEBUG record with its reason
+(`unsafe_path`, `closed_namespace`, `capability_header`, `no_bearer`, or
+`api_key_principal`). The identity check MUST produce a DEBUG record naming the
+matched pool account and its egress (`direct` or the proxy pool). No record
+MUST contain the caller's token.
+
+#### Scenario: Completed call
+
+- **WHEN** a forwarded call's body is fully relayed
+- **THEN** an INFO record carries `outcome=completed`, the status, the duration, and the relayed byte count
+
+#### Scenario: Upstream fails mid-stream
+
+- **GIVEN** upstream drops the connection after sending part of the body
+- **WHEN** the call ends
+- **THEN** a WARNING record carries `outcome=error` and the error type
+
+#### Scenario: Caller disconnects
+
+- **WHEN** the caller disconnects before the body finishes
+- **THEN** an INFO record carries `outcome=client_disconnect`
+
+#### Scenario: Declined request
+
+- **WHEN** a request without a bearer token reaches an unserved `/backend-api/` path
+- **THEN** a DEBUG record carries `reason=no_bearer`
