@@ -42,7 +42,7 @@ from app.core.crypto import TokenEncryptor
 from app.core.exceptions import DashboardAuthError, DashboardPermissionError, ProxyAuthError, ProxyUpstreamError
 from app.core.request_locality import is_local_request
 from app.core.socket_peer import raw_socket_peer_host
-from app.core.upstream_proxy import UpstreamProxyRouteError, resolve_upstream_route
+from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError, resolve_upstream_route
 from app.core.utils.time import utcnow
 from app.db.models import AccountStatus, DashboardSettings, DashboardUser, DashboardUserStatus
 from app.db.session import get_background_session
@@ -612,35 +612,65 @@ def _is_proxy_unauthenticated_socket_peer_allowed(request: HTTPConnection) -> bo
 # --- Codex usage caller identity auth ---
 
 
-async def validate_codex_usage_identity(request: Request) -> ApiKeyData | None:
+@dataclass(frozen=True, slots=True)
+class CodexCallerIdentity:
+    """A caller's own ChatGPT credentials, matched to an active pool account."""
+
+    access_token: str
+    chatgpt_account_id: str
+    account_id: str
+    account_email: str
+    route: ResolvedUpstreamRoute | None
+
+
+def _codex_caller_credentials(request: Request) -> tuple[str, str]:
+    """Return the caller's bearer token and ``chatgpt-account-id`` (may be empty)."""
+
     token = _extract_bearer_token(request.headers.get("Authorization"))
     if not token:
         raise ProxyAuthError("Missing ChatGPT token in Authorization header")
-
     raw_account_id = request.headers.get("chatgpt-account-id")
-    account_id = raw_account_id.strip() if raw_account_id else ""
-    if not account_id:
-        if token.startswith("sk-clb-"):
-            return await _validate_api_key_token(token)
-        raise ProxyAuthError("Missing chatgpt-account-id header")
+    return token, raw_account_id.strip() if raw_account_id else ""
+
+
+async def _resolve_codex_caller_identity(token: str, chatgpt_account_id: str) -> CodexCallerIdentity:
+    """Match the caller to an active pool account and resolve its egress route, without upstream I/O."""
 
     async with get_background_session() as session:
         accounts_repo = AccountsRepository(session)
-        account = await accounts_repo.get_active_by_chatgpt_account_id(account_id)
+        account = await accounts_repo.get_active_by_chatgpt_account_id(chatgpt_account_id)
         if account is None:
             raise ProxyAuthError("Unknown or inactive chatgpt-account-id")
-        local_account_id = account.id
-        local_account_email = account.email
         try:
             route = await resolve_upstream_route(
                 session,
-                account_id=local_account_id,
+                account_id=account.id,
                 operation="usage_identity",
                 scope="account",
                 encryptor=TokenEncryptor(),
             )
         except UpstreamProxyRouteError as exc:
             raise ProxyUpstreamError("Unable to resolve upstream proxy route for ChatGPT credentials") from exc
+        return CodexCallerIdentity(
+            access_token=token,
+            chatgpt_account_id=chatgpt_account_id,
+            account_id=account.id,
+            account_email=account.email,
+            route=route,
+        )
+
+
+async def validate_codex_usage_identity(request: Request) -> ApiKeyData | None:
+    token, account_id = _codex_caller_credentials(request)
+    if not account_id:
+        if token.startswith("sk-clb-"):
+            return await _validate_api_key_token(token)
+        raise ProxyAuthError("Missing chatgpt-account-id header")
+
+    identity = await _resolve_codex_caller_identity(token, account_id)
+    local_account_id = identity.account_id
+    local_account_email = identity.account_email
+    route = identity.route
 
     try:
         usage_payload = await fetch_usage(
@@ -687,6 +717,20 @@ async def validate_codex_usage_identity(request: Request) -> ApiKeyData | None:
     request.state.codex_usage_identity_route = route
     request.state.codex_usage_identity_payload = usage_payload
     return None
+
+
+async def validate_codex_backend_passthrough_identity(request: Request) -> CodexCallerIdentity:
+    """Admit a Codex ChatGPT-backend passthrough call under the caller's own identity.
+
+    The passthrough route only matches requests carrying a ChatGPT bearer, so
+    codex-lb principals never reach here. The caller's token itself is
+    authenticated by upstream on the forwarded call.
+    """
+
+    token, account_id = _codex_caller_credentials(request)
+    if not account_id:
+        raise ProxyAuthError("Missing chatgpt-account-id header")
+    return await _resolve_codex_caller_identity(token, account_id)
 
 
 async def validate_codex_provider_usage_identity(request: Request) -> ApiKeyData | None:
