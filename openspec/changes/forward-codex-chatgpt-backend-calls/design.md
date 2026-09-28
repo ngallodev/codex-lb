@@ -86,7 +86,9 @@ runs the same verification `/api/codex/usage` uses
 upstream `/wham/usage` with the caller's token, workspace remap). The
 confirmed token/account binding is cached for 60 seconds, keyed by a hash of
 the account id and the token, so a Codex session pays one extra upstream round
-trip per minute rather than one per call. Rejections on the forwarded call
+trip per minute rather than one per call. Only the binding is cached: every
+call still rechecks from the database that the account is active and resolves
+its current egress route. Rejections on the forwarded call
 itself are relayed and never recorded as account health.
 
 *Earlier choice, revised:* the first version ran only the local half (account

@@ -456,6 +456,26 @@ async def test_confirmed_binding_is_reused(live_base_url: str, direct_upstream: 
 
 
 @pytest.mark.asyncio
+async def test_cached_binding_is_refused_once_the_account_is_paused(
+    live_base_url: str, direct_upstream: _FakeChatGPT
+) -> None:
+    await _seed_account("acc-pause", "cgpt-pause")
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        first = await client.get("/backend-api/wham/settings/user", headers=_caller_headers("cgpt-pause"))
+        async with SessionLocal() as session:
+            account = await session.get(Account, "acc-pause")
+            assert account is not None
+            account.status = AccountStatus.PAUSED
+            await session.commit()
+        second = await client.get("/backend-api/wham/settings/user", headers=_caller_headers("cgpt-pause"))
+
+    assert first.status_code == 200
+    assert second.status_code == 401
+    assert second.json()["error"]["type"] == "authentication_error"
+    assert len(direct_upstream.forwarded()) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("method", "path", "expected_status"),
     [

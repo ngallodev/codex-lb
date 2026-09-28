@@ -33,6 +33,7 @@
 - [x] 7.4 Pass `allow_redirects=False` on both upstream calls. Verify with `test_redirects_are_relayed_not_followed` for direct and proxied egress (fails on the previous code).
 - [x] 7.5 Relay GET/HEAD request bodies. Verify with `test_get_body_is_relayed` (fails on the previous code).
 - [x] 7.6 Forward the raw query string as an already-encoded URL. Verify with `test_query_string_encoding_is_preserved` (fails on the previous code).
+- [x] 7.7 Cache only the verified token/account binding; on a cache hit, recheck from the database that the account (or its workspace account) is still active and resolve its current route. Verify with `test_cached_binding_is_refused_once_the_account_is_paused` (fails on the previous code: the second call was forwarded).
 
 ## 4. Docs and validation
 
