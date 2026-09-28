@@ -25,6 +25,15 @@
 
 - [x] 6.1 Classify aiohttp client errors from the upstream body as `outcome=error` before the caller-disconnect branch, including when Starlette (ASGI 2.4) re-raises the `OSError` as `ClientDisconnect` (checked via the exception context). Verify with `tests/unit/test_codex_backend_passthrough_outcome.py`: the `ClientOSError` cases fail on the previous code under both ASGI 2.3 and 2.4 and pass now; the payload-error and caller-side cases pass on both.
 
+## 7. Local review follow-ups (fork PR review, 2026-09-28)
+
+- [x] 7.1 Before forwarding, prove the caller's token belongs to the account with the existing usage-identity check (`_verify_codex_caller_identity`, shared with `/api/codex/usage`, including its workspace remap), and cache the confirmed binding for 60s keyed by a hash of account id and token. Verify with `test_token_not_accepted_for_account_is_not_forwarded` (fails on the previous code: the forged call went out through the account's proxy) and `test_confirmed_binding_is_reused`.
+- [x] 7.2 Decline `sk-clb-` bearers whether or not `chatgpt-account-id` is present. Verify with the `api-key-with-account-header` case of `test_proxy_api_key_principals_get_404_without_upstream_call` (fails on the previous code).
+- [x] 7.3 Decline any path another `/backend-api` route matches under any method (`served_locally`), so wrong-method calls keep their local 405. Verify with `test_wrong_method_on_served_path_keeps_405` (fails on the previous code).
+- [x] 7.4 Pass `allow_redirects=False` on both upstream calls. Verify with `test_redirects_are_relayed_not_followed` for direct and proxied egress (fails on the previous code).
+- [x] 7.5 Relay GET/HEAD request bodies. Verify with `test_get_body_is_relayed` (fails on the previous code).
+- [x] 7.6 Forward the raw query string as an already-encoded URL. Verify with `test_query_string_encoding_is_preserved` (fails on the previous code).
+
 ## 4. Docs and validation
 
 - [x] 4.1 Update the "Showing pooled quota in Codex" section in `docs/client-setup.md` to the `/backend-api` setting and state that connectors are unavailable with it; link to `openspec/specs/codex-backend-passthrough/`.

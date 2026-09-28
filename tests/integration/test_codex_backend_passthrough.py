@@ -18,6 +18,7 @@ import httpx
 import pytest
 import uvicorn
 from aiohttp import web
+from yarl import URL
 
 import app.core.clients.codex as codex_module
 from app.core.config.settings import get_settings
@@ -31,6 +32,8 @@ pytestmark = pytest.mark.integration
 _POOL_TOKEN = "pool-stored-access-token"
 _CALLER_TOKEN = "caller-own-chatgpt-token"
 _REJECTED_TOKEN = "rejected-by-upstream"
+# Upstream refuses this token even on the usage-identity check.
+_FORGED_TOKEN = "not-this-accounts-token"
 
 # Non-MCP backend paths Codex 0.157.0 sent with chatgpt_base_url = ".../backend-api"
 # (captured 2026-09-27; see the change's context.md).
@@ -79,14 +82,20 @@ class _FakeChatGPT:
             _SeenRequest(
                 method=request.method,
                 host=request.host,
-                path_qs=request.rel_url.path_qs,
+                # Raw bytes, so encoding changes show; a proxied request's
+                # absolute-form target is reduced to its path and query.
+                path_qs=URL(request.raw_path, encoded=True).raw_path_qs,
                 headers={key.lower(): value for key, value in request.headers.items()},
                 body=await request.read(),
             )
         )
         path = request.rel_url.path
         if path == "/backend-api/wham/usage":
+            if request.headers.get("Authorization") == f"Bearer {_FORGED_TOKEN}":
+                return web.json_response({"detail": "token rejected"}, status=401)
             return web.json_response({"plan_type": "plus"})
+        if path == "/backend-api/wham/redirect":
+            return web.Response(status=302, headers={"Location": "/backend-api/wham/elsewhere"})
         if path == "/backend-api/wham/settings/user" and request.headers.get("Authorization") == (
             f"Bearer {_REJECTED_TOKEN}"
         ):
@@ -323,7 +332,7 @@ async def test_caller_credentials_are_forwarded_not_pool_credentials(
         response = await client.get("/backend-api/wham/settings/user", headers=_caller_headers("cgpt-ident"))
 
     assert response.status_code == 200
-    (seen,) = direct_upstream.seen
+    (seen,) = direct_upstream.forwarded()
     assert seen.headers["authorization"] == f"Bearer {_CALLER_TOKEN}"
     assert seen.headers["chatgpt-account-id"] == "cgpt-ident"
     assert _POOL_TOKEN not in str(seen.headers)
@@ -375,13 +384,14 @@ async def test_uncredentialed_mcp_client_falls_through_like_an_unknown_path(
     "headers",
     [
         {"Authorization": "Bearer sk-clb-not-a-chatgpt-identity"},
+        {"Authorization": "Bearer sk-clb-not-a-chatgpt-identity", "chatgpt-account-id": "cgpt-cap"},
         {
             "Authorization": f"Bearer {_CALLER_TOKEN}",
             "chatgpt-account-id": "cgpt-cap",
             "X-Codex-LB-Required-Capability": "anything",
         },
     ],
-    ids=["api-key-principal", "capability-carrier"],
+    ids=["api-key-principal", "api-key-with-account-header", "capability-carrier"],
 )
 async def test_proxy_api_key_principals_get_404_without_upstream_call(
     live_base_url: str, direct_upstream: _FakeChatGPT, headers: dict[str, str]
@@ -413,6 +423,104 @@ async def test_upstream_token_rejection_is_relayed_and_account_stays_healthy(
     assert account.deactivation_reason is None
 
 
+@pytest.mark.asyncio
+async def test_token_not_accepted_for_account_is_not_forwarded(
+    live_base_url: str, fake_chatgpt: _FakeChatGPT, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Knowing an active account id is not enough to send arbitrary calls out
+    # through that account's proxy: only the fixed usage check may go out first.
+    monkeypatch.setattr(get_settings(), "upstream_base_url", "http://upstream.invalid/backend-api")
+    await _seed_account("acc-forged", "cgpt-forged", proxy_port=fake_chatgpt.port)
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.get(
+            "/backend-api/wham/settings/user", headers=_caller_headers("cgpt-forged", token=_FORGED_TOKEN)
+        )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["type"] == "authentication_error"
+    assert fake_chatgpt.forwarded() == []
+    assert [seen.path_qs for seen in fake_chatgpt.seen] == ["/backend-api/wham/usage"]
+
+
+@pytest.mark.asyncio
+async def test_confirmed_binding_is_reused(live_base_url: str, direct_upstream: _FakeChatGPT) -> None:
+    await _seed_account("acc-bound", "cgpt-bound")
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        for _ in range(2):
+            response = await client.get("/backend-api/wham/settings/user", headers=_caller_headers("cgpt-bound"))
+            assert response.status_code == 200
+
+    identity_checks = [seen for seen in direct_upstream.seen if seen.path_qs == "/backend-api/wham/usage"]
+    assert len(identity_checks) == 1
+    assert len(direct_upstream.forwarded()) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "expected_status"),
+    [
+        ("POST", "wham/usage", 405),
+        # GET falls to the SPA fallback's not-found answer, as on the /api/codex twin.
+        ("GET", "wham/rate-limit-reset-credits/consume", 404),
+    ],
+)
+async def test_wrong_method_on_served_path_keeps_local_answer(
+    live_base_url: str, direct_upstream: _FakeChatGPT, method: str, path: str, expected_status: int
+) -> None:
+    await _seed_account("acc-405", "cgpt-405")
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.request(method, f"/backend-api/{path}", headers=_caller_headers("cgpt-405"))
+        twin = await client.request(
+            method, f"/api/codex/{path.removeprefix('wham/')}", headers=_caller_headers("cgpt-405")
+        )
+
+    assert response.status_code == twin.status_code == expected_status
+    assert direct_upstream.seen == []
+
+
+@pytest.mark.asyncio
+async def test_query_string_encoding_is_preserved(live_base_url: str, direct_upstream: _FakeChatGPT) -> None:
+    await _seed_account("acc-query", "cgpt-query")
+    raw_query = "q=a+b&x=%2Fy&z=%7e&s=a%20b&e=&k"
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.get(f"/backend-api/wham/echo?{raw_query}", headers=_caller_headers("cgpt-query"))
+
+    assert response.status_code == 200
+    assert [seen.path_qs for seen in direct_upstream.forwarded()] == [f"/backend-api/wham/echo?{raw_query}"]
+
+
+@pytest.mark.asyncio
+async def test_get_body_is_relayed(live_base_url: str, direct_upstream: _FakeChatGPT) -> None:
+    await _seed_account("acc-getbody", "cgpt-getbody")
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.request(
+            "GET", "/backend-api/wham/echo", content=b'{"probe": 1}', headers=_caller_headers("cgpt-getbody")
+        )
+
+    assert response.status_code == 200
+    (seen,) = direct_upstream.forwarded()
+    assert seen.body == b'{"probe": 1}'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("egress", ["direct", "proxied"])
+async def test_redirects_are_relayed_not_followed(
+    live_base_url: str, fake_chatgpt: _FakeChatGPT, monkeypatch: pytest.MonkeyPatch, egress: str
+) -> None:
+    if egress == "direct":
+        monkeypatch.setattr(get_settings(), "upstream_base_url", f"http://127.0.0.1:{fake_chatgpt.port}/backend-api")
+        await _seed_account("acc-redirect", "cgpt-redirect")
+    else:
+        monkeypatch.setattr(get_settings(), "upstream_base_url", "http://upstream.invalid/backend-api")
+        await _seed_account("acc-redirect", "cgpt-redirect", proxy_port=fake_chatgpt.port)
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.get("/backend-api/wham/redirect", headers=_caller_headers("cgpt-redirect"))
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/backend-api/wham/elsewhere"
+    assert [seen.path_qs for seen in fake_chatgpt.forwarded()] == ["/backend-api/wham/redirect"]
+
+
 # --- 3.3 streaming and header hygiene --------------------------------------
 
 
@@ -437,7 +545,7 @@ async def test_event_stream_is_streamed_before_upstream_finishes(
             rest = b"".join([chunk async for chunk in chunks])
 
     assert b"data: second" in rest
-    (seen,) = direct_upstream.seen
+    (seen,) = direct_upstream.forwarded()
     assert seen.body == b'{"jsonrpc":"2.0"}'
     assert seen.headers["mcp-session-id"] == "s1"
     assert "cookie" not in seen.headers
@@ -481,7 +589,7 @@ async def test_bound_account_forwards_through_its_proxy(
         response = await client.get("/backend-api/wham/accounts/check", headers=_caller_headers("cgpt-proxied"))
 
     assert response.status_code == 200
-    (seen,) = fake_chatgpt.seen
+    (seen,) = fake_chatgpt.forwarded()
     assert seen.host == "upstream.invalid"
     assert seen.path_qs == "/backend-api/wham/accounts/check"
 
@@ -510,7 +618,7 @@ async def test_codex_0157_backend_paths_are_forwarded_unchanged(
             response = await client.get(f"/backend-api/{path}", headers=_caller_headers("cgpt-drift"))
             assert response.status_code == 200, path
 
-    assert [seen.path_qs for seen in direct_upstream.seen] == [
+    assert [seen.path_qs for seen in direct_upstream.forwarded()] == [
         f"/backend-api/{path}" for path in _CODEX_0157_BACKEND_PATHS
     ]
 
@@ -621,6 +729,11 @@ async def test_client_disconnect_logs_client_disconnect_outcome(
             "/backend-api/wham/settings/user",
             {"Authorization": f"Bearer {_CALLER_TOKEN}", "X-Codex-LB-Required-Capability": "x"},
             "capability_header",
+        ),
+        (
+            "/backend-api/wham/rate-limit-reset-credits/consume",
+            {"Authorization": f"Bearer {_CALLER_TOKEN}"},
+            "served_locally",
         ),
     ],
 )

@@ -153,7 +153,7 @@ def _decline_reason(rest: str, headers: Headers) -> str | None:
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         return "no_bearer"
-    if token.startswith("sk-clb-") and not headers.get("chatgpt-account-id"):
+    if token.startswith("sk-clb-"):
         return "api_key_principal"
     return None
 
@@ -171,6 +171,8 @@ class _ForwardableBackendRoute(APIRoute):
         if match is Match.NONE:
             return match, child_scope
         reason = _decline_reason(child_scope["path_params"]["rest"], Headers(scope=scope))
+        if reason is None and self._served_locally(scope):
+            reason = "served_locally"
         if reason is not None:
             logger.debug(
                 "Codex backend passthrough declined method=%s path=%s reason=%s",
@@ -180,6 +182,22 @@ class _ForwardableBackendRoute(APIRoute):
             )
             return Match.NONE, {}
         return match, child_scope
+
+    def _served_locally(self, scope: Scope) -> bool:
+        """Whether another ``/backend-api`` route owns this path under any method.
+
+        Starlette prefers a later full match over an earlier partial one, so
+        without this a wrong-method call to a local path would be forwarded
+        instead of answered 405.
+        """
+
+        router = getattr(scope.get("app"), "router", None)
+        for route in getattr(router, "routes", ()):
+            if route is self or not getattr(route, "path", "").startswith("/backend-api/"):
+                continue
+            if route.matches(scope)[0] is not Match.NONE:
+                return True
+        return False
 
 
 # Codex calls these on the ``/wham`` path in the ``/backend-api`` style; they
@@ -211,13 +229,13 @@ async def codex_backend_passthrough(
     identity: CodexCallerIdentity = Depends(validate_codex_backend_passthrough_identity),
 ) -> Response:
     upstream_rest = rest
-    body = await request.body() if request.method not in {"GET", "HEAD"} else None
+    body = await request.body()
     try:
         stream = await open_codex_backend_stream(
             upstream_rest,
             method=request.method,
             body=body or None,
-            query_params=request.query_params.multi_items(),
+            raw_query=request.scope["query_string"].decode("latin-1"),
             inbound_headers=request.headers,
             access_token=identity.access_token,
             chatgpt_account_id=identity.chatgpt_account_id,

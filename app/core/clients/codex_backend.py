@@ -8,11 +8,12 @@ caller's own token (never a pool account's), with the body streamed.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
+from yarl import URL
 
 from app.core.clients.codex import CodexClient, create_codex_session, release_codex_response
 from app.core.clients.http import HttpClientLease, acquire_http_client
@@ -73,14 +74,18 @@ class CodexBackendStream:
                 await self._lease.close()
 
 
-def backend_upstream_url(rest: str) -> str:
-    """Map ``/backend-api/<rest>`` on codex-lb to the same path upstream."""
+def backend_upstream_url(rest: str, raw_query: str = "") -> URL:
+    """Map ``/backend-api/<rest>?<raw_query>`` on codex-lb to the same URL upstream.
+
+    Built as an already-encoded URL so the path and query reach upstream
+    byte-for-byte, without yarl re-quoting them.
+    """
 
     settings = with_dashboard_overrides(get_settings())
     base = settings.upstream_base_url.rstrip("/")
     if "/backend-api" not in base:
         base = f"{base}/backend-api"
-    return f"{base}/{rest}"
+    return URL(f"{base}/{rest}{'?' + raw_query if raw_query else ''}", encoded=True)
 
 
 def _passthrough_request_headers(inbound: Mapping[str, str], access_token: str, account_id: str) -> dict[str, str]:
@@ -100,7 +105,7 @@ async def open_codex_backend_stream(
     *,
     method: str,
     body: bytes | None,
-    query_params: Sequence[tuple[str, str]],
+    raw_query: str,
     inbound_headers: Mapping[str, str],
     access_token: str,
     chatgpt_account_id: str,
@@ -110,10 +115,11 @@ async def open_codex_backend_stream(
 
     ``route`` is the caller's account egress route; ``None`` means the account
     has no proxy binding and egress is direct, as for its usage-identity check.
+    Redirects are returned to the caller, never followed here.
     """
 
     settings = with_dashboard_overrides(get_settings())
-    url = backend_upstream_url(rest)
+    url = backend_upstream_url(rest, raw_query)
     headers = _passthrough_request_headers(inbound_headers, access_token, chatgpt_account_id)
     timeout = aiohttp.ClientTimeout(
         total=None,
@@ -127,7 +133,7 @@ async def open_codex_backend_stream(
                 method,
                 url,
                 route=route,
-                params=list(query_params),
+                allow_redirects=False,
                 data=body,
                 headers=headers,
                 timeout=timeout,
@@ -148,7 +154,7 @@ async def open_codex_backend_stream(
         response = await lease.client.session.request(
             method,
             url,
-            params=list(query_params),
+            allow_redirects=False,
             data=body,
             headers=headers,
             timeout=timeout,

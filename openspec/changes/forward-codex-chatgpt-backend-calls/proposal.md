@@ -55,9 +55,9 @@ are unavailable while `chatgpt_base_url` points at codex-lb.
   one router included in `app/main.py` after every other `/backend-api` router.
 - `app/modules/proxy/api.py`: the existing `/api/codex/usage` and consume
   handlers are reused by the new aliases, with no behavior change.
-- `app/core/auth/dependencies.py`: the local half of the usage-identity check
-  (active pool account lookup plus upstream route resolution) is split out and
-  shared with the passthrough, without the upstream `/wham/usage` round trip.
+- `app/core/auth/dependencies.py`: the usage-identity verification is split
+  out of `validate_codex_usage_identity` and shared with the passthrough, which
+  caches a confirmed token/account binding for 60 seconds.
 - `app/core/clients/codex_backend.py` (new): a streaming upstream request
   helper; the existing `codex_control_request` buffers bodies.
 - Helm/Gateway: none. `/backend-api/wham` is already in the documented

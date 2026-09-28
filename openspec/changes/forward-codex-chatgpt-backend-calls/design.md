@@ -80,14 +80,25 @@ caller's own account, and file ids are pinned to pool accounts.
 has `.` or `..` segments, or contains `?`, `#`, `\`, or control characters,
 so the forward cannot leave upstream `/backend-api/`.
 
-**Local-only identity gate; upstream authenticates the token.** Split
-`validate_codex_usage_identity` so its first half (bearer present,
-`chatgpt-account-id` → active account, route resolution) is reusable without
-the `/wham/usage` round trip. The workspace-account remap stays in the usage
-path only, because it needs the workspace id from the upstream usage payload;
-the passthrough uses the base account's route. Upstream rejections are relayed
-and never recorded as account health. *Alternative:* reuse the full validator.
-Rejected because every forwarded call would add an upstream usage fetch.
+**Verified identity gate, cached binding.** Before forwarding, the passthrough
+runs the same verification `/api/codex/usage` uses
+(`_verify_codex_caller_identity`: active account lookup, route resolution,
+upstream `/wham/usage` with the caller's token, workspace remap). The
+confirmed token/account binding is cached for 60 seconds, keyed by a hash of
+the account id and the token, so a Codex session pays one extra upstream round
+trip per minute rather than one per call. Rejections on the forwarded call
+itself are relayed and never recorded as account health.
+
+*Earlier choice, revised:* the first version ran only the local half (account
+lookup and route resolution) and let upstream authenticate the token on the
+forwarded call, to avoid the extra round trip. Review pointed out that this
+let anyone who knows an active account's `chatgpt-account-id` send arbitrary
+`/backend-api` calls out through that account's egress with a made-up token.
+With verification first, the only pre-verification egress is the fixed usage
+check `/api/codex/usage` already makes. *Alternative not taken:* verify the
+token's JWT signature locally against OpenAI's published keys. That removes
+the pre-verification request entirely, but adds a key-fetching and
+claims-parsing dependency the rest of codex-lb does not have.
 
 **Caller token, account route.** The upstream request is built with the
 caller's `Authorization` and `chatgpt-account-id`. The matched pool account

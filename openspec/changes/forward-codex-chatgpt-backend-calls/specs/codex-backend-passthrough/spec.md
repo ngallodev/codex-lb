@@ -29,8 +29,10 @@ trailing slash) with the same authentication and behavior as
 codex-lb MUST forward any `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, or `DELETE`
 request to `/backend-api/<rest>` that no other codex-lb route serves to
 `<upstream base>/<rest>`, where `<upstream base>` is the configured upstream
-base URL ending in `/backend-api`, preserving `<rest>` and the query string
-unchanged. Paths codex-lb serves itself MUST keep their existing behavior.
+base URL ending in `/backend-api`, preserving `<rest>` and the raw query string
+byte-for-byte (no decoding or re-encoding). Paths codex-lb serves itself MUST
+keep their existing behavior under every method, including their `405` answer
+to a method they do not serve.
 Unserved paths under `/backend-api/codex/`, `/backend-api/files`, and
 `/backend-api/transcribe` MUST NOT be forwarded, because those namespaces carry
 pool-routed traffic. A request that is not forwarded (because of its
@@ -52,6 +54,19 @@ MUST cause no upstream request. codex-lb MUST NOT forward paths outside
 - **GIVEN** the caller presents a valid ChatGPT identity for an active pool account
 - **WHEN** it sends `GET /backend-api/ps/plugins/list?scope=GLOBAL&limit=200`
 - **THEN** the upstream request targets `<upstream base>/ps/plugins/list?scope=GLOBAL&limit=200`
+
+#### Scenario: Query string encoding is preserved
+
+- **GIVEN** the caller presents a valid ChatGPT identity for an active pool account
+- **WHEN** it sends `GET /backend-api/wham/echo?q=a+b&x=%2Fy&z=%7e`
+- **THEN** the upstream request targets `<upstream base>/wham/echo?q=a+b&x=%2Fy&z=%7e`
+
+#### Scenario: Wrong method on a served path is not forwarded
+
+- **GIVEN** the caller presents a valid ChatGPT identity for an active pool account
+- **WHEN** it sends `POST /backend-api/wham/usage`
+- **THEN** codex-lb responds `405`
+- **AND** no request is forwarded upstream
 
 #### Scenario: Pool-routed namespaces are not forwarded
 
@@ -77,7 +92,13 @@ MUST cause no upstream request. codex-lb MUST NOT forward paths outside
 A forwarded request MUST carry the caller's own bearer token and
 `chatgpt-account-id` upstream. codex-lb MUST NOT substitute, add, or fall back
 to any pool account's stored credentials. codex-lb MUST forward only when the
-caller's `chatgpt-account-id` matches an active account in the pool. A request
+caller's `chatgpt-account-id` matches an active account in the pool, and
+only after upstream has accepted the caller's bearer token for that account on
+the usage-identity check (`GET <upstream base>/wham/usage`, the check
+`/api/codex/usage` uses). A confirmed token/account binding MAY be reused for
+up to 60 seconds without repeating the check. When upstream rejects the token
+on that check, codex-lb MUST respond `401` with an `authentication_error`
+envelope and MUST NOT forward the request. A request
 without an `Authorization` bearer token MUST NOT be forwarded and MUST receive
 the unserved-path response. When a bearer token is present but the
 `chatgpt-account-id` header is missing, or the account is unknown or inactive,
@@ -98,6 +119,14 @@ contacting upstream.
 - **THEN** codex-lb responds `401` with an `authentication_error` envelope
 - **AND** no upstream request is made
 
+#### Scenario: Token not accepted for the account is not forwarded
+
+- **GIVEN** pool account A is active
+- **AND** upstream rejects the caller's bearer token on the usage-identity check for account A
+- **WHEN** the caller sends `GET /backend-api/wham/settings/user` with account A's `chatgpt-account-id`
+- **THEN** codex-lb responds `401` with an `authentication_error` envelope
+- **AND** no request other than the usage-identity check leaves through account A's egress
+
 #### Scenario: Uncredentialed connector call falls through
 
 - **WHEN** a caller sends `POST /backend-api/ps/mcp` without an `Authorization` bearer token
@@ -112,21 +141,29 @@ contacting upstream.
 #### Scenario: Upstream token rejection is relayed
 
 - **GIVEN** the caller's `chatgpt-account-id` matches an active pool account
-- **AND** upstream rejects the caller's bearer token with `401`
+- **AND** upstream accepts the caller's token on the usage-identity check but rejects it on the forwarded call with `401`
 - **WHEN** the caller sends `GET /backend-api/wham/accounts/check`
 - **THEN** codex-lb relays the upstream `401` status and body
 - **AND** does not change any pool account's status or health
 
 ### Requirement: Proxy API-key principals are not forwarded
 
-A request that authenticates with a codex-lb API key (an `sk-clb-` bearer
-without `chatgpt-account-id`), or that carries `X-Codex-LB-Required-Capability`,
+A request that authenticates with a codex-lb API key (an `sk-clb-` bearer,
+with or without `chatgpt-account-id`), or that carries
+`X-Codex-LB-Required-Capability`,
 MUST NOT be forwarded upstream. It MUST receive the unserved-path response
 and cause no upstream request.
 
 #### Scenario: API-key caller gets not-found
 
 - **WHEN** a caller sends `GET /backend-api/wham/settings/user` with `Authorization: Bearer sk-clb-…` and no `chatgpt-account-id`
+- **THEN** codex-lb responds `404`
+- **AND** no upstream request is made
+
+#### Scenario: Account header does not make an API key forwardable
+
+- **GIVEN** pool account A is active
+- **WHEN** a caller sends `GET /backend-api/wham/settings/user` with `Authorization: Bearer sk-clb-…` and account A's `chatgpt-account-id`
 - **THEN** codex-lb responds `404`
 - **AND** no upstream request is made
 
@@ -153,11 +190,14 @@ back to direct egress.
 
 ### Requirement: Forwarded bodies and headers are relayed faithfully
 
-codex-lb MUST relay the request body unchanged and MUST stream the upstream
+codex-lb MUST relay the request body unchanged, for every forwarded method
+including `GET` and `HEAD`, and MUST stream the upstream
 response body to the caller as it arrives, without waiting for the upstream
 response to complete. It MUST relay the upstream status code and only an
 allowlist of end-to-end response headers, which MUST include `Content-Type`,
-`Mcp-Session-Id`, `Retry-After`, and `WWW-Authenticate`. It MUST NOT forward
+`Location`, `Mcp-Session-Id`, `Retry-After`, and `WWW-Authenticate`. codex-lb
+MUST NOT follow upstream redirects: a `3xx` response MUST be relayed to the
+caller with its status and `Location`. It MUST NOT forward
 `Cookie` upstream, and MUST NOT relay `Set-Cookie`, hop-by-hop headers, or any
 other header outside the allowlist back to the caller.
 
@@ -175,6 +215,18 @@ other header outside the allowlist back to the caller.
 - **THEN** the caller saw `Mcp-Session-Id: s1` on the first response
 - **AND** the later upstream request carries `Mcp-Session-Id: s1`
 
+#### Scenario: Redirects are relayed, not followed
+
+- **GIVEN** upstream answers a forwarded request with `302` and `Location: /backend-api/wham/elsewhere`
+- **WHEN** the caller sends that request through codex-lb
+- **THEN** the caller receives `302` with that `Location`
+- **AND** codex-lb makes no request to `/backend-api/wham/elsewhere`
+
+#### Scenario: GET body is relayed
+
+- **WHEN** the caller sends a forwarded `GET` with a request body
+- **THEN** the upstream request carries the same body
+
 #### Scenario: Cookies do not cross the proxy
 
 - **GIVEN** upstream responds with a `Set-Cookie` header
@@ -191,8 +243,8 @@ id, the upstream status, an outcome of `completed`, `client_disconnect`, or
 body bytes relayed. It MUST be logged at WARNING when the outcome is `error` or
 the upstream status is 5xx, and at INFO otherwise. A request the passthrough
 declines to forward MUST produce a DEBUG record with its reason
-(`unsafe_path`, `closed_namespace`, `capability_header`, `no_bearer`, or
-`api_key_principal`). The identity check MUST produce a DEBUG record naming the
+(`unsafe_path`, `closed_namespace`, `capability_header`, `no_bearer`,
+`api_key_principal`, or `served_locally`). The identity check MUST produce a DEBUG record naming the
 matched pool account and its egress (`direct` or the proxy pool). No record
 MUST contain the caller's token.
 
