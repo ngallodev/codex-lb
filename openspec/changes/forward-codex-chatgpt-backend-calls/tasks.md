@@ -35,6 +35,11 @@
 - [x] 7.6 Forward the raw query string as an already-encoded URL. Verify with `test_query_string_encoding_is_preserved` (fails on the previous code).
 - [x] 7.7 Cache only the verified token/account binding; on a cache hit, recheck from the database that the account (or its workspace account) is still active and resolve its current route. Verify with `test_cached_binding_is_refused_once_the_account_is_paused` (fails on the previous code: the second call was forwarded).
 
+## 8. Raw-path and mount-prefix follow-ups (2026-09-28)
+
+- [x] 8.1 Forward the raw percent-encoded path instead of the decoded `rest`, so `/backend-api/settings%2Fdetail` reaches upstream unchanged. Answer 400 without forwarding when the raw remainder does not start with `/backend-api/` or does not decode back to `rest`. Verify with `test_percent_encoded_path_is_forwarded_byte_for_byte`, and with the encoded cases (`%23`, `%2e%2e%2f`, `%2f..%2f`) added to `test_closed_and_escaping_paths_are_not_forwarded`.
+- [x] 8.2 Strip an encoded mount prefix (`root_path`) from the raw path before matching, so a mount such as `/a b` (raw `/a%20b`) no longer turns every passthrough request into a 400. Verify with `test_encoded_mount_prefix_is_stripped_before_forwarding` (the prefix-in-raw-path case fails on the previous code).
+
 ## 4. Docs and validation
 
 - [x] 4.1 Update the "Showing pooled quota in Codex" section in `docs/client-setup.md` to the `/backend-api` setting and state that connectors are unavailable with it; link to `openspec/specs/codex-backend-passthrough/`.
