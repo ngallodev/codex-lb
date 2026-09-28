@@ -21,6 +21,10 @@
 
 - [x] 5.1 Log one stream-end record per forwarded call (method, path, account, status, outcome, duration_ms, bytes; WARNING on `error` or 5xx), a DEBUG record with the reason when the route declines a request, and a DEBUG identity record with egress. Verify with the log-seam tests in `tests/integration/test_codex_backend_passthrough.py` (completed, upstream 5xx, mid-stream failure, client disconnect, four decline reasons, proxy-pool egress).
 
+## 6. Pre-review follow-ups (CodeRabbit on the fork PR)
+
+- [x] 6.1 Classify aiohttp client errors from the upstream body as `outcome=error` before the caller-disconnect branch, including when Starlette (ASGI 2.4) re-raises the `OSError` as `ClientDisconnect` (checked via the exception context). Verify with `tests/unit/test_codex_backend_passthrough_outcome.py`: the `ClientOSError` cases fail on the previous code under both ASGI 2.3 and 2.4 and pass now; the payload-error and caller-side cases pass on both.
+
 ## 4. Docs and validation
 
 - [x] 4.1 Update the "Showing pooled quota in Codex" section in `docs/client-setup.md` to the `/backend-api` setting and state that connectors are unavailable with it; link to `openspec/specs/codex-backend-passthrough/`.

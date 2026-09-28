@@ -207,6 +207,12 @@ MUST contain the caller's token.
 - **WHEN** the call ends
 - **THEN** a WARNING record carries `outcome=error` and the error type
 
+#### Scenario: Upstream socket error is not mistaken for a caller disconnect
+
+- **GIVEN** the upstream body iterator raises an aiohttp socket-level error (e.g. `ClientOSError`, an `OSError` subclass)
+- **WHEN** the call ends
+- **THEN** a WARNING record carries `outcome=error` and the error type, under both ASGI 2.3 and 2.4 servers
+
 #### Scenario: Caller disconnects
 
 - **WHEN** the caller disconnects before the body finishes

@@ -91,8 +91,19 @@ class _UpstreamStreamingResponse(StreamingResponse):
         error: str | None = None
         try:
             await super().__call__(scope, receive, send)
-        except (asyncio.CancelledError, ClientDisconnect, OSError):
-            outcome = "client_disconnect"
+        except aiohttp.ClientError as exc:
+            # Checked first: aiohttp.ClientOSError / ClientConnectionResetError
+            # subclass OSError but mean the *upstream* failed, not the caller.
+            outcome, error = "error", type(exc).__name__
+            raise
+        except (asyncio.CancelledError, ClientDisconnect, OSError) as exc:
+            # Under ASGI 2.4 Starlette re-raises any OSError from the body
+            # iterator as ClientDisconnect; the upstream error is its context.
+            upstream_error = exc.__context__ if isinstance(exc, ClientDisconnect) else None
+            if isinstance(upstream_error, aiohttp.ClientError):
+                outcome, error = "error", type(upstream_error).__name__
+            else:
+                outcome = "client_disconnect"
             raise
         except Exception as exc:
             outcome, error = "error", type(exc).__name__
