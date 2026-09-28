@@ -30,7 +30,10 @@ codex-lb MUST forward any `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, or `DELETE`
 request to `/backend-api/<rest>` that no other codex-lb route serves to
 `<upstream base>/<rest>`, where `<upstream base>` is the configured upstream
 base URL ending in `/backend-api`, preserving `<rest>` and the raw query string
-byte-for-byte (no decoding or re-encoding). Paths codex-lb serves itself MUST
+byte-for-byte (no decoding or re-encoding), so a percent-encoded `<rest>` such
+as `settings%2Fdetail` reaches upstream still encoded. A path whose decoded form
+contains a `.` or `..` segment, `?`, `#`, `\`, or a control character MUST NOT be
+forwarded. Paths codex-lb serves itself MUST
 keep their existing behavior under every method, including their `405` answer
 to a method they do not serve.
 Unserved paths under `/backend-api/codex/`, `/backend-api/files`, and
@@ -60,6 +63,19 @@ MUST cause no upstream request. codex-lb MUST NOT forward paths outside
 - **GIVEN** the caller presents a valid ChatGPT identity for an active pool account
 - **WHEN** it sends `GET /backend-api/wham/echo?q=a+b&x=%2Fy&z=%7e`
 - **THEN** the upstream request targets `<upstream base>/wham/echo?q=a+b&x=%2Fy&z=%7e`
+
+#### Scenario: Path percent-encoding is preserved
+
+- **GIVEN** the caller presents a valid ChatGPT identity for an active pool account
+- **WHEN** it sends `GET /backend-api/settings%2Fdetail`
+- **THEN** the upstream request targets `<upstream base>/settings%2Fdetail`, not `<upstream base>/settings/detail`
+
+#### Scenario: Encoded traversal or query delimiters are not forwarded
+
+- **GIVEN** the caller presents a valid ChatGPT identity for an active pool account
+- **WHEN** it sends `GET /backend-api/%2e%2e%2fsecret` or `GET /backend-api/x%3Fy`
+- **THEN** codex-lb responds with its unmatched-path `404`
+- **AND** no upstream request is made
 
 #### Scenario: Wrong method on a served path is not forwarded
 

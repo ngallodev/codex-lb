@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from urllib.parse import unquote
 
 import aiohttp
 from fastapi import APIRouter, Depends, Request
@@ -223,12 +224,46 @@ for _path in (
     )
 
 
+_BACKEND_PREFIX = "/backend-api/"
+
+
+def _raw_upstream_rest(scope: Scope, rest: str) -> str | None:
+    """The still-percent-encoded path after ``/backend-api/``, or ``rest`` without a raw path.
+
+    Starlette decodes ``rest``, so ``settings%2Fdetail`` would otherwise reach
+    upstream as ``settings/detail``. Returns ``None`` when the raw path does not
+    decode back to ``rest`` (the route matched something other than what would
+    be forwarded); the caller must refuse rather than guess.
+    """
+
+    raw_path = scope.get("raw_path")
+    if not raw_path:
+        return rest
+    raw = raw_path.decode("latin-1").split("?", 1)[0]
+    root_path = scope.get("root_path") or ""
+    if root_path and raw.startswith(root_path):
+        raw = raw[len(root_path) :]
+    if not raw.startswith(_BACKEND_PREFIX):
+        return None
+    raw_rest = raw[len(_BACKEND_PREFIX) :]
+    # Only the decoded form is ever checked by ``_decline_reason``; a raw path
+    # that decodes differently would forward bytes that check never saw.
+    if unquote(raw_rest) != rest:
+        return None
+    return raw_rest
+
+
 async def codex_backend_passthrough(
     request: Request,
     rest: str,
     identity: CodexCallerIdentity = Depends(validate_codex_backend_passthrough_identity),
 ) -> Response:
-    upstream_rest = rest
+    upstream_rest = _raw_upstream_rest(request.scope, rest)
+    if upstream_rest is None:
+        return JSONResponse(
+            status_code=400,
+            content=openai_error("invalid_request_error", "Request path is not valid"),
+        )
     body = await request.body()
     try:
         stream = await open_codex_backend_stream(

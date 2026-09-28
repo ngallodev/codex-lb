@@ -293,6 +293,9 @@ async def test_wham_consume_is_served_by_the_reset_credit_handler(
         "/backend-api/a/%2e%2e/%2e%2e/secret",
         "/backend-api/x%3Fy",
         "/backend-api/x%5Cy",
+        "/backend-api/x%23y",
+        "/backend-api/%2e%2e%2fsecret",
+        "/backend-api/a%2f..%2fb",
         "/api/codex/accounts/check",
     ],
 )
@@ -507,6 +510,18 @@ async def test_query_string_encoding_is_preserved(live_base_url: str, direct_ups
 
     assert response.status_code == 200
     assert [seen.path_qs for seen in direct_upstream.forwarded()] == [f"/backend-api/wham/echo?{raw_query}"]
+
+
+@pytest.mark.asyncio
+async def test_percent_encoded_path_is_forwarded_byte_for_byte(
+    live_base_url: str, direct_upstream: _FakeChatGPT
+) -> None:
+    await _seed_account("acc-encpath", "cgpt-encpath")
+    async with httpx.AsyncClient(base_url=live_base_url) as client:
+        response = await client.get("/backend-api/settings%2Fdetail", headers=_caller_headers("cgpt-encpath"))
+
+    assert response.status_code == 200
+    assert [seen.path_qs for seen in direct_upstream.forwarded()] == ["/backend-api/settings%2Fdetail"]
 
 
 @pytest.mark.asyncio
