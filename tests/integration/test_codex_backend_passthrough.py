@@ -525,6 +525,24 @@ async def test_percent_encoded_path_is_forwarded_byte_for_byte(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("request_prefix", ["/a%20b", ""], ids=["prefix-in-raw-path", "prefix-not-in-raw-path"])
+async def test_encoded_mount_prefix_is_stripped_before_forwarding(
+    app_instance, live_base_url: str, direct_upstream: _FakeChatGPT, request_prefix: str
+) -> None:
+    # The lifespan is already running under ``live_base_url``; drive the same app
+    # in-process so the ASGI scope can carry a decoded ``root_path`` of "/a b".
+    await _seed_account("acc-mount", "cgpt-mount")
+    transport = httpx.ASGITransport(app=app_instance, root_path="/a b")
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get(
+            f"{request_prefix}/backend-api/settings%2Fdetail", headers=_caller_headers("cgpt-mount")
+        )
+
+    assert response.status_code == 200
+    assert [seen.path_qs for seen in direct_upstream.forwarded()] == ["/backend-api/settings%2Fdetail"]
+
+
+@pytest.mark.asyncio
 async def test_get_body_is_relayed(live_base_url: str, direct_upstream: _FakeChatGPT) -> None:
     await _seed_account("acc-getbody", "cgpt-getbody")
     async with httpx.AsyncClient(base_url=live_base_url) as client:

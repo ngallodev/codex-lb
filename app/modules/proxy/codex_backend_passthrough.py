@@ -227,6 +227,29 @@ for _path in (
 _BACKEND_PREFIX = "/backend-api/"
 
 
+def _strip_raw_mount_prefix(raw: str, root_path: str) -> str:
+    """Drop the mount prefix from a still-encoded path, or return it unchanged.
+
+    ``root_path`` is decoded, while ``raw`` is not. uvicorn prepends the literal
+    ``--root-path`` to ``raw_path``; a Starlette ``Mount`` leaves the client's
+    encoded prefix in place; ``httpx.ASGITransport`` omits the prefix entirely.
+    The prefix is matched at a segment boundary, literally first and then by
+    what it decodes to, so ``/a%20b`` matches a ``root_path`` of ``/a b``.
+    """
+
+    if not root_path:
+        return raw
+    if raw.startswith(root_path):
+        return raw[len(root_path) :]
+    end = 0
+    while (end := raw.find("/", end + 1)) != -1:
+        if unquote(raw[:end]) == root_path:
+            return raw[end:]
+    if unquote(raw) == root_path:
+        return ""
+    return raw
+
+
 def _raw_upstream_rest(scope: Scope, rest: str) -> str | None:
     """The still-percent-encoded path after ``/backend-api/``, or ``rest`` without a raw path.
 
@@ -240,9 +263,7 @@ def _raw_upstream_rest(scope: Scope, rest: str) -> str | None:
     if not raw_path:
         return rest
     raw = raw_path.decode("latin-1").split("?", 1)[0]
-    root_path = scope.get("root_path") or ""
-    if root_path and raw.startswith(root_path):
-        raw = raw[len(root_path) :]
+    raw = _strip_raw_mount_prefix(raw, scope.get("root_path") or "")
     if not raw.startswith(_BACKEND_PREFIX):
         return None
     raw_rest = raw[len(_BACKEND_PREFIX) :]
