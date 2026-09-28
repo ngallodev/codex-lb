@@ -69,7 +69,7 @@ different: it is fungible, which is why the pool exists.
 ## Live verification (2026-09-27)
 
 Deployed to the home instance and checked with the real Codex client, pointed
-at `https://codex-lb.home.arpa/backend-api`.
+at `https://<codex-lb-host>/backend-api`.
 
 A `codex exec` session produced these backend calls through codex-lb:
 
